@@ -1,0 +1,23 @@
+{
+  "name": "self-evolution",
+  "version": "0.4.0",
+  "description": "Auto-curate ~/.claude/skills/ from your conversations via in-session AgentHook with hard-gated security and meta-skill driven content generation.",
+  "author": {
+    "name": "lijunyi"
+  },
+  "license": "MIT",
+  "keywords": ["skills", "self-improving", "memory", "automation", "agent-hook"],
+  "components": ["agents", "commands", "hooks", "skills"],
+  "agentsPath": "agents",
+  "commandsPath": "commands",
+  "hooksPath": "hooks/hooks.json",
+  "skillsPath": "skills",
+  "settings": {
+    "nudgeIntervalToolCalls": 10,
+    "skillTargetScope": "user",
+    "categoryWhitelist": ["debug", "refactor", "test", "deploy", "data", "web", "cli", "meta"],
+    "maxSkillSizeBytes": 15360,
+    "reviewerModel": "inherit",
+    "metaSkillName": "evolve-skill-writer"
+  }
+}
