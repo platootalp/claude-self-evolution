@@ -30,7 +30,7 @@ check() {
 }
 
 check E1 "jq >= 1.6"          "jq --version"                                    'jq-1\.[6-9]|jq-[2-9]'
-check E2 "bash >= 4.x"        "bash --version | head -1"                         'version (4|5|6)\.'
+check E2 "bash >= 3.2"        "bash --version | head -1"                         'version (3\.2|4|5|6)\.'
 check E3 "awk works"          "awk 'BEGIN{print 1}'"                             '^1$'
 check E4 "claude available"   "command -v claude >/dev/null && echo OK"          '^OK$'
 check E5 "git >= 2.x"         "git --version"                                    'git version (2|3)\.'

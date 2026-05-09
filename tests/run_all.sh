@@ -76,7 +76,7 @@ run_test() {
 
 # 1. Preflight checks
 if [ -x "$TEST_ROOT/preflight.sh" ]; then
-    echo "[1/6] Preflight Environment Checks"
+    echo "[1/10] Preflight Environment Checks"
     echo "-----------------------------------"
     run_test "$TEST_ROOT/preflight.sh" "preflight.sh"
 else
@@ -109,7 +109,7 @@ else
     echo ""
 fi
 
-echo "[4/6] Unit Tests - Security Scan"
+echo "[4/10] Unit Tests - Security Scan"
 echo "-----------------------------------"
 if [ -x "$TEST_ROOT/unit/test_security_scan.sh" ]; then
     run_test "$TEST_ROOT/unit/test_security_scan.sh" "unit/test_security_scan.sh"
@@ -120,8 +120,35 @@ else
     echo ""
 fi
 
-# 5. Integration tests
-echo "[5/6] Integration Tests - Auto Path"
+echo "[5/10] Unit Tests - Verify Skill Quality"
+echo "-----------------------------------"
+if [ -x "$TEST_ROOT/unit/test_verify_skill_quality.sh" ]; then
+    run_test "$TEST_ROOT/unit/test_verify_skill_quality.sh" "unit/test_verify_skill_quality.sh"
+else
+    echo -e "${YELLOW}INFO${NC}: unit/test_verify_skill_quality.sh not found (optional)"
+    echo ""
+fi
+
+echo "[6/10] Unit Tests - Redteam Full Suite"
+echo "-----------------------------------"
+if [ -x "$TEST_ROOT/unit/test_redteam_full.sh" ]; then
+    run_test "$TEST_ROOT/unit/test_redteam_full.sh" "unit/test_redteam_full.sh"
+else
+    echo -e "${YELLOW}INFO${NC}: unit/test_redteam_full.sh not found (optional)"
+    echo ""
+fi
+
+echo "[7/10] Unit Tests - Cleanup Failure"
+echo "-----------------------------------"
+if [ -x "$TEST_ROOT/unit/test_cleanup_failure.sh" ]; then
+    run_test "$TEST_ROOT/unit/test_cleanup_failure.sh" "unit/test_cleanup_failure.sh"
+else
+    echo -e "${YELLOW}INFO${NC}: unit/test_cleanup_failure.sh not found (optional)"
+    echo ""
+fi
+
+# 8. Integration tests
+echo "[8/10] Integration Tests - Auto Path"
 echo "-----------------------------------"
 if [ -x "$TEST_ROOT/integration/test_auto_path.sh" ]; then
     run_test "$TEST_ROOT/integration/test_auto_path.sh" "integration/test_auto_path.sh"
@@ -130,7 +157,7 @@ else
     echo ""
 fi
 
-echo "[6/6] Integration Tests - Manual Path"
+echo "[9/10] Integration Tests - Manual Path"
 echo "-----------------------------------"
 if [ -x "$TEST_ROOT/integration/test_manual_path.sh" ]; then
     run_test "$TEST_ROOT/integration/test_manual_path.sh" "integration/test_manual_path.sh"

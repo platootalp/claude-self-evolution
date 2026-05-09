@@ -45,7 +45,7 @@ if [ "$APPLY" -eq 1 ]; then
     rm -f "${TARGETS[@]}"
     log_event info reset_state \
         "$(jq -nc --argjson n "${#TARGETS[@]}" '{deleted_count:$n}')"
-    [ "$QUIET" = "0" ] && echo "Removed ${#TARGETS[@]} file(s)."
+    if [ "$QUIET" = "0" ]; then echo "Removed ${#TARGETS[@]} file(s)."; fi
 else
-    [ "$QUIET" = "0" ] && echo "(dry run) re-run with --apply to delete."
+    if [ "$QUIET" = "0" ]; then echo "(dry run) re-run with --apply to delete."; fi
 fi
