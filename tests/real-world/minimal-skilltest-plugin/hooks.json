@@ -1,0 +1,15 @@
+{
+  "Stop": [
+    {
+      "hooks": [
+        {
+          "type": "agent",
+          "prompt": "This is a MINIMAL FEASIBILITY TEST for the self-evolution plugin.\n\nYour ONLY job is to test whether SkillTool is available inside an AgentHook.\n\nPlease:\n1. Call SkillTool with name 'evolve-skill-writer' and argument 'test-argument-feasibility-check'\n2. Report back whether the call succeeded or failed\n3. If it succeeded, summarize what was returned (first 200 chars)\n4. If it failed, report the exact error message\n\nOutput your findings as a single structured line:\nRESULT: <SUCCESS|FAILURE> | message: <summary>",
+          "timeout": 30,
+          "model": "inherit",
+          "statusMessage": "skilltool: feasibility test"
+        }
+      ]
+    }
+  ]
+}
