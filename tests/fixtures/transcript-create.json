@@ -1,0 +1,10 @@
+[
+  {"role":"user","content":"My FastAPI returns 500 on /orders, help debug."},
+  {"role":"assistant","content":"I'll check logs first."},
+  {"role":"tool_use","name":"Bash","input":{"command":"tail -n 50 /var/log/uvicorn.log"}},
+  {"role":"tool_result","content":"AttributeError: 'NoneType' object has no attribute 'id'"},
+  {"role":"assistant","content":"The repository returns None. Let me grep the handler."},
+  {"role":"tool_use","name":"Grep","input":{"pattern":"orders/"}},
+  {"role":"tool_result","content":"app/handlers/orders.py:42: order = repo.find(id)"},
+  {"role":"assistant","content":"Adding a None guard. Three steps: read log, grep handler, add guard. This generalizes to any FastAPI 5xx."}
+]
