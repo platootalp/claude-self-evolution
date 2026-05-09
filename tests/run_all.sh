@@ -40,11 +40,21 @@ run_test() {
     local test_name="$2"
     local output
     local exit_code
+    local tmpfile
 
     printf "%-40s ... " "$test_name"
 
-    output=$("$test_path" 2>&1)
-    exit_code=$?
+    # Capture output to a temporary file to avoid issues with large output
+    tmpfile=$(mktemp)
+    trap 'rm -f "$tmpfile"' RETURN
+
+    if "$test_path" > "$tmpfile" 2>&1; then
+        exit_code=0
+    else
+        exit_code=$?
+    fi
+
+    output=$(cat "$tmpfile" 2>/dev/null || echo "")
 
     if [ $exit_code -eq 0 ]; then
         echo -e "${GREEN}PASS${NC}"
@@ -53,8 +63,11 @@ run_test() {
         echo -e "${RED}FAIL${NC}"
         TOTAL_FAIL=$((TOTAL_FAIL + 1))
         FAILED_TESTS+=("$test_name")
-        echo -e "${RED}Error output:${NC}"
-        echo "$output" | sed 's/^/    /'
+        echo -e "${RED}Error output (first 50 lines):${NC}"
+        echo "$output" | head -50 | sed 's/^/    /'
+        if [ $(echo "$output" | wc -l) -gt 50 ]; then
+            echo "    ... (output truncated, see full output above)"
+        fi
     fi
     echo ""
 }
