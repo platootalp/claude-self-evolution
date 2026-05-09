@@ -1,0 +1,24 @@
+{
+  "name": "self-evolution-local",
+  "id": "self-evolution-local",
+  "owner": {
+    "name": "self-evolution"
+  },
+  "metadata": {
+    "description": "Self-evolution plugin",
+    "version": "0.0.1"
+  },
+  "plugins": [
+    {
+      "name": "self-evolution",
+      "source": "./",
+      "description": "Auto-curate skills from your conversations",
+      "version": "0.4.0",
+      "author": {
+        "name": "self-evolution"
+      },
+      "keywords": ["skills", "automation", "self-evolution"],
+      "category": "workflow"
+    }
+  ]
+}

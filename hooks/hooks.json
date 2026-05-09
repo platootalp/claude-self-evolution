@@ -1,52 +1,55 @@
 {
-  "PostToolUse": [
-    {
-      "matcher": "*",
-      "hooks": [
-        {
-          "type": "command",
-          "command": "${CLAUDE_PLUGIN_ROOT}/scripts/nudge-state.sh --event=post-tool-use",
-          "async": true,
-          "timeout": 2
-        }
-      ]
-    }
-  ],
-  "Stop": [
-    {
-      "hooks": [
-        {
-          "type": "command",
-          "command": "${CLAUDE_PLUGIN_ROOT}/scripts/stop-gate.sh",
-          "timeout": 3,
-          "statusMessage": "evolve: gate"
-        },
-        {
-          "type": "agent",
-          "prompt": "You are a self-evolution reviewer for the conversation that just stopped.\\n\\nFIRST STEP — frequency gate (MUST):\\n  Read the trigger flag file at \\${CLAUDE_PLUGIN_ROOT}/data/trigger-flag-\\${session_id}.json. If it does NOT exist, immediately call StructuredOutput with ok:true reason:\\\"SKIPPED: nudge_gate_not_met\\\". Do not proceed.\\n\\n  Note on variables in this prompt: \\${CLAUDE_PLUGIN_ROOT} and \\${session_id} (and \\$ARGUMENTS) are NOT shell-expanded by you; the hook engine substitutes them before this prompt reaches you (Claude-Code hook engine's documented behavior for type:agent prompts). If your tool calls receive the literal strings '\\${CLAUDE_PLUGIN_ROOT}' or '\\${session_id}', that means substitution did NOT happen — fall back to: read \\$CLAUDE_PLUGIN_ROOT from environment via Bash 'echo \\$CLAUDE_PLUGIN_ROOT', and recover session_id by globbing 'ls \\$CLAUDE_PLUGIN_ROOT/data/trigger-flag-*.json | head -1'. Open issue Q1 should resolve this for v5.\\n\\nSECOND STEP — review:\\n  Read the transcript at the path in \\$ARGUMENTS, list ~/.claude/skills/, and decide CREATE / UPDATE / SKIP. SKIP UNLESS the conversation demonstrates a reusable, non-trivial workflow (≥3 logical steps, generalizable, no one-off data).\\n\\nSECOND.5 STEP — decision rationale (F2 — MUST before invoking the meta-skill):\\n  Before any tool call, write ONE sentence (≤30 words) explaining WHY this workflow should be captured (or why not). Reject your own draft if it boils down to: 'looks technical', 'used multiple tools', or 'might be useful'. Acceptable rationales must reference (a) at least 3 logical steps, (b) generalizability beyond the original prompt, (c) absence of user-specific data. If the rationale fails this self-check, choose SKIP and call StructuredOutput with reason:\\\"SKIPPED: rationale_failed: <one-line>\\\".\\n\\nTHIRD STEP — generate SKILL.md content via the meta-skill (DO NOT write content from memory):\\n  If CREATE or UPDATE, invoke:\\n    SkillTool('evolve-skill-writer', context)\\n  where context is a structured string with: decision (CREATE|UPDATE), proposed_name (<category>-<kebab>), existing_skill_path (UPDATE only), workflow_summary (3-5 sentences), key_steps (numbered list), context_notes, and rationale (the sentence from SECOND.5 STEP).\\n\\n  Use the returned content with Write to ~/.claude/skills/<name>/SKILL.md. Do NOT modify the meta-skill's output beyond required path adjustments.\\n\\nFOURTH STEP — handle hard gates (F18 — surface BLOCKED reason):\\n  A global PreToolUse hook will independently enforce path whitelist and content scan. If Write returns 'BLOCKED: <inner-reason>', do NOT retry. Call StructuredOutput with ok:true reason:\\\"SKIPPED: hard_gate_blocked: <inner-reason verbatim>\\\". The verbatim inner reason is required so the user can audit which gate fired.\\n\\nFIFTH STEP — log decision + output (F37):\\n  Before calling StructuredOutput, run Bash exactly once:\\n    bash \\${CLAUDE_PLUGIN_ROOT}/scripts/log-decision.sh \\\"<DECISION_VERB>\\\" \\\"<one-line reason or rationale>\\\" \\\"\\\" \\\"\\${session_id}\\\"\\n  where <DECISION_VERB> is one of: CREATED | UPDATED | SKIPPED | ABORTED. The script writes a single JSONL line and is best-effort (failures must NOT abort the reviewer).\\n\\n  Then ALWAYS call StructuredOutput with ok:true (NEVER ok:false; ok:false would block the main conversation). Encode decision in reason exactly as one of: \\\"CREATED: <name> | rationale: <one-line>\\\" / \\\"UPDATED: <name> | rationale: <one-line>\\\" / \\\"SKIPPED: <reason>\\\".",
-          "timeout": 90,
-          "model": "inherit",
-          "statusMessage": "evolve: reviewing"
-        },
-        {
-          "type": "command",
-          "command": "${CLAUDE_PLUGIN_ROOT}/scripts/stop-gate.sh --cleanup",
-          "timeout": 2,
-          "async": true
-        }
-      ]
-    }
-  ],
-  "PreToolUse": [
-    {
-      "matcher": "Write|Edit|MultiEdit",
-      "hooks": [
-        {
-          "type": "command",
-          "command": "${CLAUDE_PLUGIN_ROOT}/scripts/security-scan.sh",
-          "timeout": 10
-        }
-      ]
-    }
-  ]
+  "description": "Self-evolution plugin hooks for automatic skill generation",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/nudge-state.sh --event=post-tool-use",
+            "async": true,
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/stop-gate.sh",
+            "timeout": 3,
+            "statusMessage": "evolve: gate"
+          },
+          {
+            "type": "agent",
+            "prompt": "You are a self-evolution reviewer for the conversation that just stopped.\n\nFIRST STEP — frequency gate (MUST):\n  Read trigger flag file at ${CLAUDE_PLUGIN_ROOT}/data/trigger-flag-${session_id}.json. If it does NOT exist, immediately call StructuredOutput with ok:true reason:"SKIPPED: nudge_gate_not_met". Do not proceed.\n\n  Note on variables in this prompt: ${CLAUDE_PLUGIN_ROOT} and ${session_id} (and $ARGUMENTS) are NOT shell-expanded by you; the hook engine substitutes them before this prompt reaches you (Claude-Code hook engine's documented behavior for type:agent prompts). If your tool calls receive the literal strings '${CLAUDE_PLUGIN_ROOT}' or '${session_id}', that means substitution did NOT happen — fall back to: read $CLAUDE_PLUGIN_ROOT from environment via Bash 'echo $CLAUDE_PLUGIN_ROOT', and recover session_id by globbing 'ls $CLAUDE_PLUGIN_ROOT/data/trigger-flag-*.json | head -1'. Open issue Q1 should resolve this for v5.\n\nSECOND STEP — review:\n  Read the transcript at the path in $ARGUMENTS, list ~/.claude/skills/, and decide CREATE / UPDATE / SKIP. SKIP UNLESS the conversation demonstrates a reusable, non-trivial workflow (≥3 logical steps, generalizable, no one-off data).\n\nSECOND.5 STEP — decision rationale (F2 — MUST before invoking the meta-skill):\n  Before any tool call, write ONE sentence (≤30 words) explaining WHY this workflow should be captured (or why not). Reject your own draft if it boils down to: 'looks technical', 'used multiple tools', or 'might be useful'. Acceptable rationales must reference (a) at least 3 logical steps, (b) generalizability beyond the original prompt, (c) absence of user-specific data. If the rationale fails this self-check, choose SKIP and call StructuredOutput with reason:"SKIPPED: rationale_failed: <one-line>".\n\nTHIRD STEP — generate SKILL.md content via the meta-skill (DO NOT write content from memory):\n  If CREATE or UPDATE, invoke:\n    SkillTool('evolve-skill-writer', context)\n  where context is a structured string with: decision (CREATE|UPDATE), proposed_name (<category>-<kebab>), existing_skill_path (UPDATE only), workflow_summary (3-5 sentences), key_steps (numbered list), context_notes, and rationale (the sentence from SECOND.5 STEP).\n\n  Use the returned content with Write to ~/.claude/skills/<name>/SKILL.md. Do NOT modify the meta-skill's output beyond required path adjustments.\n\nFOURTH STEP — handle hard gates (F18 — surface BLOCKED reason):\n  A global PreToolUse hook will independently enforce path whitelist and content scan. If Write returns 'BLOCKED: <inner-reason>', do NOT retry. Call StructuredOutput with ok:true reason:"SKIPPED: hard_gate_blocked: <inner-reason verbatim>". The verbatim inner reason is required so that the user can audit which gate fired.\n\nFIFTH STEP — log decision + output (F37):\n  Before calling StructuredOutput, run Bash exactly once:\n    bash ${CLAUDE_PLUGIN_ROOT}/scripts/log-decision.sh "<DECISION_VERB>" "<one-line reason or rationale>" "" "${session_id}"\n  where <DECISION_VERB> is one of: CREATED | UPDATED | SKIPPED | ABORTED. The script writes a single JSONL line and is best-effort (failures must NOT abort the reviewer).\n\n  Then ALWAYS call StructuredOutput with ok:true (NEVER ok:false; ok:false would block the main conversation). Encode the decision in reason exactly as one of: "CREATED: <name> | rationale: <one-line>" / "UPDATED: <name> | rationale: <one-line>" / "SKIPPED: <reason>".",
+            "timeout": 90,
+            "model": "inherit",
+            "statusMessage": "evolve: reviewing"
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/stop-gate.sh --cleanup",
+            "timeout": 2,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/security-scan.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
 }
