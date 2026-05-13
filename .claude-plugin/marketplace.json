@@ -1,24 +1,18 @@
 {
-  "name": "self-evolution-local",
-  "id": "self-evolution-local",
+  "name": "self-evolution-marketplace",
   "owner": {
-    "name": "self-evolution"
+    "name": "platootalp"
   },
   "metadata": {
-    "description": "Self-evolution plugin",
-    "version": "0.0.1"
+    "description": "Marketplace hosting the self-evolution plugin"
   },
   "plugins": [
     {
       "name": "self-evolution",
       "source": "./",
       "description": "Auto-curate skills from your conversations",
-      "version": "0.4.0",
-      "author": {
-        "name": "self-evolution"
-      },
-      "keywords": ["skills", "automation", "self-evolution"],
-      "category": "workflow"
+      "category": "workflow",
+      "keywords": ["skills", "automation", "self-evolution"]
     }
   ]
 }

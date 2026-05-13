@@ -30,15 +30,15 @@ The system uses a three-layer hard gating mechanism for safety and a meta-skill 
 
 ## Two paths: Auto vs Manual
 
-| Feature | Auto Mode (Stop Hook) | Manual Mode (/evolve-review) |
-|---------|----------------------|-------------------------------|
-| **Trigger** | Session ends after ≥10 tool calls | User runs command during or after session |
-| **Workflow** | `PostToolUse → Stop hook → AgentHook (90s)` → skill creation | `/evolve-review` → skill-reviewer agent → meta-skill |
-| **Timeout** | 90s total (hook timeout) | No hard timeout (agent mode) |
-| **User visibility** | Silent (no blocking) | Interactive (shows decision log) |
-| **Use case** | "Set it and forget it" | On-demand extraction after a good conversation |
-| **Config** | `nudgeIntervalToolCalls` setting | Command-line flags |
-| **Safety** | Same three-layer hard gates apply | Same three-layer hard gates apply |
+| Feature             | Auto Mode (Stop Hook)                                        | Manual Mode (/evolve-review)                         |
+| ------------------- | ------------------------------------------------------------ | ---------------------------------------------------- |
+| **Trigger**         | Session ends after ≥10 tool calls                            | User runs command during or after session            |
+| **Workflow**        | `PostToolUse → Stop hook → AgentHook (90s)` → skill creation | `/evolve-review` → skill-reviewer agent → meta-skill |
+| **Timeout**         | 90s total (hook timeout)                                     | No hard timeout (agent mode)                         |
+| **User visibility** | Silent (no blocking)                                         | Interactive (shows decision log)                     |
+| **Use case**        | "Set it and forget it"                                       | On-demand extraction after a good conversation       |
+| **Config**          | `nudgeIntervalToolCalls` setting                             | Command-line flags                                   |
+| **Safety**          | Same three-layer hard gates apply                            | Same three-layer hard gates apply                    |
 
 **When to use which:**
 
@@ -86,6 +86,7 @@ Self-evolution applies defense-in-depth to prevent bad skills from entering your
 - **Bypass**: None (hard gate)
 
 **Notes:**
+
 - All three layers run in sequence; failure at any layer stops the pipeline
 - Security events are logged to JSONL for audit trail
 - The meta-skill (evolve-skill-writer) also performs a self-check (redundant with L3)
@@ -94,23 +95,24 @@ Self-evolution applies defense-in-depth to prevent bad skills from entering your
 
 ## Install
 
-### Step 1: Add plugin from local file
+### Step 1: Add the marketplace from GitHub
 
-In Claude-Code:
+In Claude Code, add this repository as a plugin marketplace (see [plugin marketplaces](https://code.claude.com/docs/zh-CN/plugin-marketplaces)):
 
 ```bash
-/plugin marketplace add file:///Users/lijunyi/road/harness-code/.worktrees/self-evolution-v4/claude-self-evolution
+/plugin marketplace add platootalp/claude-self-evolution
 ```
 
-**Note on path replacement (F27):**
-- Replace `/Users/lijunyi/road/harness-code/.worktrees/self-evolution-v4` with your actual repository path
-- The path must be absolute; relative paths don't work with file:// URIs
-- On Windows, use forward slashes: `file:///C:/Users/yourname/repo/claude-self-evolution`
-
-### Step 2: Install plugin
+**SSH-only environments:** use the full git URL instead:
 
 ```bash
-/plugin install self-evolution
+/plugin marketplace add git@github.com:platootalp/claude-self-evolution.git
+```
+
+### Step 2: Install the plugin from the marketplace
+
+```bash
+/plugin install self-evolution@self-evolution-marketplace
 ```
 
 ### Step 3: Verify installation
@@ -123,7 +125,7 @@ You should see `self-evolution v0.4.0` in the installed plugins list.
 
 ### Optional: Configure settings
 
-Edit `~/.claude/plugins/self-evolution/plugin.json` or set environment variables:
+Edit `.claude-plugin/plugin.json` inside the installed plugin directory (under `~/.claude/plugins/cache/…`), or set environment variables:
 
 ```bash
 export SELF_EVOLUTION_NUDGE_INTERVAL=15  # Trigger every 15 tool calls instead of 10
@@ -136,14 +138,14 @@ export SELF_EVOLUTION_CATEGORY_WHITELIST="debug refactor test"  # Only generate 
 
 All settings can be configured via `plugin.json` or environment variables:
 
-| Setting | Default | Description | Environment Variable |
-|---------|---------|-------------|----------------------|
-| `nudgeIntervalToolCalls` | 10 | Tool calls between auto-trigger events | `SELF_EVOLUTION_NUDGE_INTERVAL` |
-| `skillTargetScope` | "user" | Where to install skills: "user" (~/.claude/skills/) or "plugin" (self-evolution/skills/) | `SELF_EVOLUTION_TARGET_SCOPE` |
-| `categoryWhitelist` | ["debug","refactor","test","deploy","data","web","cli","meta"] | Allowed skill categories (enforced by meta-skill) | `SELF_EVOLUTION_CATEGORY_WHITELIST` |
-| `maxSkillSizeBytes` | 15360 | Maximum size of generated SKILL.md files | `SELF_EVOLUTION_MAX_SKILL_SIZE` |
-| `reviewerModel` | "inherit" | Model used by skill-reviewer agent: "inherit" (use session model) or specific model name | `SELF_EVOLUTION_REVIEWER_MODEL` |
-| `metaSkillName` | "evolve-skill-writer" | Name of meta-skill that generates SKILL.md content | N/A |
+| Setting                  | Default                                                        | Description                                                                              | Environment Variable                |
+| ------------------------ | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------- |
+| `nudgeIntervalToolCalls` | 10                                                             | Tool calls between auto-trigger events                                                   | `SELF_EVOLUTION_NUDGE_INTERVAL`     |
+| `skillTargetScope`       | "user"                                                         | Where to install skills: "user" (~/.claude/skills/) or "plugin" (self-evolution/skills/) | `SELF_EVOLUTION_TARGET_SCOPE`       |
+| `categoryWhitelist`      | ["debug","refactor","test","deploy","data","web","cli","meta"] | Allowed skill categories (enforced by meta-skill)                                        | `SELF_EVOLUTION_CATEGORY_WHITELIST` |
+| `maxSkillSizeBytes`      | 15360                                                          | Maximum size of generated SKILL.md files                                                 | `SELF_EVOLUTION_MAX_SKILL_SIZE`     |
+| `reviewerModel`          | "inherit"                                                      | Model used by skill-reviewer agent: "inherit" (use session model) or specific model name | `SELF_EVOLUTION_REVIEWER_MODEL`     |
+| `metaSkillName`          | "evolve-skill-writer"                                          | Name of meta-skill that generates SKILL.md content                                       | N/A                                 |
 
 **Example plugin.json:**
 
@@ -258,16 +260,19 @@ cd ~/.claude/plugins/self-evolution
 **Solutions:**
 
 1. **Delete the unwanted skill**:
+
    ```bash
    rm -rf ~/.claude/skills/debug-fastapi-5xx  # example
    ```
 
 2. **Adjust category whitelist** to reduce noise:
+
    ```bash
    export SELF_EVOLUTION_CATEGORY_WHITELIST="debug refactor"  # only generate debug/refactor skills
    ```
 
 3. **Increase nudge interval** to reduce frequency:
+
    ```bash
    export SELF_EVOLUTION_NUDGE_INTERVAL=20  # trigger half as often
    ```
@@ -291,12 +296,14 @@ cd ~/.claude/plugins/self-evolution
 **Solutions:**
 
 1. **Edit the skill manually**:
+
    ```bash
    # Find and edit the SKILL.md
    code ~/.claude/skills/debug-fastapi-5xx/SKILL.md
    ```
 
 2. **Delete and regenerate**:
+
    ```bash
    rm -rf ~/.claude/skills/debug-fastapi-5xx
    # Trigger a new conversation with similar workflow
@@ -327,11 +334,13 @@ cd ~/.claude/plugins/self-evolution
 ### Before upgrading
 
 1. **Backup existing skills**:
+
    ```bash
    cp -r ~/.claude/skills ~/.claude/skills.backup.$(date +%Y%m%d)
    ```
 
 2. **Backup plugin data**:
+
    ```bash
    tar czf self-evolution-backup-$(date +%Y%m%d).tar.gz ~/.claude/plugins/self-evolution
    ```
@@ -471,31 +480,31 @@ The global PreToolUse hook (`security-scan.sh`) runs before every Write/Edit/Mul
 
 ### Implemented (v0.4.0)
 
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Auto mode (Stop hook) | ✅ | Triggered every N tool calls |
-| Manual mode (/evolve-review) | ✅ | On-demand skill creation |
-| Three-layer hard gating | ✅ | Frequency, path whitelist, content scanner |
-| Meta-skill generation | ✅ | evolve-skill-writer (v1: SKILL.md only) |
-| JSONL logging | ✅ | All decisions and security events |
-| Log rotation | ✅ | Max 10MB, 5 backups |
-| Reset state script | ✅ | Clean runtime state without deleting skills |
-| 8-category whitelist | ✅ | debug, refactor, test, deploy, data, web, cli, meta |
-| Size limit enforcement | ✅ | 15KB max (configurable) |
-| Security event logging | ✅ | warn level for all L5 blocks |
+| Feature                      | Status | Notes                                               |
+| ---------------------------- | ------ | --------------------------------------------------- |
+| Auto mode (Stop hook)        | ✅     | Triggered every N tool calls                        |
+| Manual mode (/evolve-review) | ✅     | On-demand skill creation                            |
+| Three-layer hard gating      | ✅     | Frequency, path whitelist, content scanner          |
+| Meta-skill generation        | ✅     | evolve-skill-writer (v1: SKILL.md only)             |
+| JSONL logging                | ✅     | All decisions and security events                   |
+| Log rotation                 | ✅     | Max 10MB, 5 backups                                 |
+| Reset state script           | ✅     | Clean runtime state without deleting skills         |
+| 8-category whitelist         | ✅     | debug, refactor, test, deploy, data, web, cli, meta |
+| Size limit enforcement       | ✅     | 15KB max (configurable)                             |
+| Security event logging       | ✅     | warn level for all L5 blocks                        |
 
 ### v5 roadmap (planned)
 
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Automatic skill testing | 🔄 | Evals after skill creation |
-| Skill deprecation | 🔄 | Mark old skills as stale |
-| Skill merging | 🔄 | Combine similar skills automatically |
-| Global skill index | 🔄 | Full-text search across all skills |
-| Skill quality scoring | 🔄 | Rate skills by usage and effectiveness |
-| Interactive refinement | 🔄 | User feedback loop for improving generated skills |
-| Multi-language support | 🔄 | Generate skills in different languages |
-| Skill templates | 🔄 | User-defined templates for customization |
+| Feature                 | Status | Notes                                             |
+| ----------------------- | ------ | ------------------------------------------------- |
+| Automatic skill testing | 🔄     | Evals after skill creation                        |
+| Skill deprecation       | 🔄     | Mark old skills as stale                          |
+| Skill merging           | 🔄     | Combine similar skills automatically              |
+| Global skill index      | 🔄     | Full-text search across all skills                |
+| Skill quality scoring   | 🔄     | Rate skills by usage and effectiveness            |
+| Interactive refinement  | 🔄     | User feedback loop for improving generated skills |
+| Multi-language support  | 🔄     | Generate skills in different languages            |
+| Skill templates         | 🔄     | User-defined templates for customization          |
 
 ---
 
@@ -508,6 +517,7 @@ The following risks have been identified in the R2 security review. Mitigations 
 **Risk**: The LLM might generate incorrect or misleading skill content.
 
 **Mitigation**:
+
 - Quality checklist in evolve-skill-writer enforces basic correctness
 - Users can manually edit/delete generated skills
 - Security scanner blocks dangerous patterns
@@ -520,6 +530,7 @@ The following risks have been identified in the R2 security review. Mitigations 
 **Risk**: The LLM might include secrets (API keys, tokens, passwords) in generated skill content.
 
 **Mitigation**:
+
 - L3 content scanner blocks secret-like patterns (but not 100% coverage)
 - evolve-skill-writer includes explicit instructions against including private data
 - Security event logging allows audit of blocked content
@@ -532,6 +543,7 @@ The following risks have been identified in the R2 security review. Mitigations 
 **Risk**: Skill names with `../` could write files outside the intended directory.
 
 **Mitigation**:
+
 - L4 path whitelist validates all paths before Write/Edit operations
 - security-scan.sh explicitly blocks path traversal patterns
 - Meta-skill enforces naming convention (`<category>-<kebab-name>`)
@@ -544,6 +556,7 @@ The following risks have been identified in the R2 security review. Mitigations 
 **Risk**: Unbounded log growth could fill disk space.
 
 **Mitigation**:
+
 - Log rotation (F45) limits file size to 10MB and keeps 5 backups
 - JSONL logs are compressed for archival
 - Reset-state script can delete logs if needed
@@ -560,6 +573,7 @@ The following risks have been identified in the R2 security review. Mitigations 
 - **Contribution**: Pull requests welcome for improvements to the meta-skill, security scanner, or documentation
 
 **Version history:**
+
 - v0.4.0 (2026-05-09): Production release with three-layer hard gating, meta-skill generation, and comprehensive logging
 - v0.3.0 (2026-05-01): Beta release with manual mode only
 - v0.1.0 (2026-04-15): Initial prototype

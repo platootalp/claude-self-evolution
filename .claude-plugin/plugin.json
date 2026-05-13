@@ -3,9 +3,11 @@
   "version": "0.4.0",
   "description": "Auto-curate ~/.claude/skills/ from your conversations via in-session AgentHook with hard-gated security and meta-skill driven content generation.",
   "author": {
-    "name": "lijunyi"
+    "name": "platootalp"
   },
   "license": "MIT",
+  "homepage": "https://github.com/platootalp/claude-self-evolution",
+  "repository": "https://github.com/platootalp/claude-self-evolution",
   "keywords": ["skills", "self-improving", "memory", "automation", "agent-hook"],
   "components": ["agents", "commands", "hooks", "skills"],
   "agentsPath": "agents",

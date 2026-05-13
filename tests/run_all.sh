@@ -6,8 +6,13 @@
 #   2. unit/test_nudge_state.sh
 #   3. unit/test_stop_gate.sh
 #   4. unit/test_security_scan.sh
-#   5. integration/test_auto_path.sh（如存在）
-#   6. integration/test_manual_path.sh（如存在）
+#   5. unit/test_verify_skill_quality.sh（如存在）
+#   6. unit/test_redteam_full.sh（如存在）
+#   7. unit/test_cleanup_failure.sh（如存在）
+#   8. integration/test_auto_path.sh（如存在）
+#
+# 无头 Claude 冒烟：见 docs/testing.md，单独运行
+#   RUN_CLAUDE_E2E=1 ./tests/integration/test_headless_e2e.sh
 #
 # 输出要求：
 #   - 每个测试显示名称和状态（PASS/FAIL）
@@ -76,7 +81,7 @@ run_test() {
 
 # 1. Preflight checks
 if [ -x "$TEST_ROOT/preflight.sh" ]; then
-    echo "[1/10] Preflight Environment Checks"
+    echo "[1/8] Preflight Environment Checks"
     echo "-----------------------------------"
     run_test "$TEST_ROOT/preflight.sh" "preflight.sh"
 else
@@ -87,7 +92,7 @@ else
 fi
 
 # 2. Unit tests
-echo "[2/6] Unit Tests - Nudge State"
+echo "[2/8] Unit Tests - Nudge State"
 echo "-----------------------------------"
 if [ -x "$TEST_ROOT/unit/test_nudge_state.sh" ]; then
     run_test "$TEST_ROOT/unit/test_nudge_state.sh" "unit/test_nudge_state.sh"
@@ -98,7 +103,7 @@ else
     echo ""
 fi
 
-echo "[3/6] Unit Tests - Stop Gate"
+echo "[3/8] Unit Tests - Stop Gate"
 echo "-----------------------------------"
 if [ -x "$TEST_ROOT/unit/test_stop_gate.sh" ]; then
     run_test "$TEST_ROOT/unit/test_stop_gate.sh" "unit/test_stop_gate.sh"
@@ -109,7 +114,7 @@ else
     echo ""
 fi
 
-echo "[4/10] Unit Tests - Security Scan"
+echo "[4/8] Unit Tests - Security Scan"
 echo "-----------------------------------"
 if [ -x "$TEST_ROOT/unit/test_security_scan.sh" ]; then
     run_test "$TEST_ROOT/unit/test_security_scan.sh" "unit/test_security_scan.sh"
@@ -120,7 +125,7 @@ else
     echo ""
 fi
 
-echo "[5/10] Unit Tests - Verify Skill Quality"
+echo "[5/8] Unit Tests - Verify Skill Quality"
 echo "-----------------------------------"
 if [ -x "$TEST_ROOT/unit/test_verify_skill_quality.sh" ]; then
     run_test "$TEST_ROOT/unit/test_verify_skill_quality.sh" "unit/test_verify_skill_quality.sh"
@@ -129,7 +134,7 @@ else
     echo ""
 fi
 
-echo "[6/10] Unit Tests - Redteam Full Suite"
+echo "[6/8] Unit Tests - Redteam Full Suite"
 echo "-----------------------------------"
 if [ -x "$TEST_ROOT/unit/test_redteam_full.sh" ]; then
     run_test "$TEST_ROOT/unit/test_redteam_full.sh" "unit/test_redteam_full.sh"
@@ -138,7 +143,7 @@ else
     echo ""
 fi
 
-echo "[7/10] Unit Tests - Cleanup Failure"
+echo "[7/8] Unit Tests - Cleanup Failure"
 echo "-----------------------------------"
 if [ -x "$TEST_ROOT/unit/test_cleanup_failure.sh" ]; then
     run_test "$TEST_ROOT/unit/test_cleanup_failure.sh" "unit/test_cleanup_failure.sh"
@@ -148,21 +153,12 @@ else
 fi
 
 # 8. Integration tests
-echo "[8/10] Integration Tests - Auto Path"
+echo "[8/8] Integration Tests - Auto Path"
 echo "-----------------------------------"
 if [ -x "$TEST_ROOT/integration/test_auto_path.sh" ]; then
     run_test "$TEST_ROOT/integration/test_auto_path.sh" "integration/test_auto_path.sh"
 else
     echo -e "${YELLOW}INFO${NC}: integration/test_auto_path.sh not found (optional)"
-    echo ""
-fi
-
-echo "[9/10] Integration Tests - Manual Path"
-echo "-----------------------------------"
-if [ -x "$TEST_ROOT/integration/test_manual_path.sh" ]; then
-    run_test "$TEST_ROOT/integration/test_manual_path.sh" "integration/test_manual_path.sh"
-else
-    echo -e "${YELLOW}INFO${NC}: integration/test_manual_path.sh not found (optional)"
     echo ""
 fi
 

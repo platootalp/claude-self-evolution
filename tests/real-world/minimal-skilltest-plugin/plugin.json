@@ -1,6 +1,0 @@
-{
-  "name": "minimal-skilltest",
-  "version": "0.0.1",
-  "description": "Minimal plugin to test SkillTool availability inside AgentHook",
-  "hooksPath": "hooks.json"
-}
