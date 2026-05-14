@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { State, Job, SessionState } from "../types.js";
+import type { State, Job, SessionState, SessionStateFull, Stats, RecentDecision } from "../types.js";
 
 export function loadState(statePath: string): State {
   try {
@@ -81,4 +81,125 @@ export function updateJob(
     Object.assign(state.jobs[idx], updates);
     saveState(statePath, state);
   }
+}
+
+// ─── Per-Session State ───────────────────────────────────────────────
+
+export function initSessionState(
+  sessionsDir: string,
+  sessionId: string,
+  partial: Partial<SessionStateFull> = {}
+): void {
+  const dir = path.join(sessionsDir, sessionId);
+  fs.mkdirSync(dir, { recursive: true });
+  const state: SessionStateFull = {
+    count: 0,
+    pending_review: false,
+    start_ts: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
+    ...partial,
+  };
+  const statePath = path.join(dir, "state.json");
+  const tmpPath = statePath + ".tmp";
+  fs.writeFileSync(tmpPath, JSON.stringify(state, null, 2), "utf-8");
+  fs.renameSync(tmpPath, statePath);
+}
+
+export function loadSessionState(
+  sessionsDir: string,
+  sessionId: string
+): SessionStateFull {
+  const statePath = path.join(sessionsDir, sessionId, "state.json");
+  try {
+    const raw = fs.readFileSync(statePath, "utf-8");
+    return JSON.parse(raw) as SessionStateFull;
+  } catch {
+    return { count: 0, pending_review: false };
+  }
+}
+
+export function saveSessionState(
+  sessionsDir: string,
+  sessionId: string,
+  state: SessionStateFull
+): void {
+  const dir = path.join(sessionsDir, sessionId);
+  fs.mkdirSync(dir, { recursive: true });
+  const statePath = path.join(dir, "state.json");
+  const tmpPath = statePath + ".tmp";
+  fs.writeFileSync(tmpPath, JSON.stringify(state, null, 2), "utf-8");
+  fs.renameSync(tmpPath, statePath);
+}
+
+export function updateSessionResult(
+  sessionsDir: string,
+  sessionId: string,
+  result: Pick<SessionStateFull, "review_decision"> & Partial<SessionStateFull>
+): void {
+  const state = loadSessionState(sessionsDir, sessionId);
+  Object.assign(state, result, { end_ts: new Date().toISOString().replace(/\.\d{3}Z$/, "Z") });
+  saveSessionState(sessionsDir, sessionId, state);
+}
+
+// ─── Stats ───────────────────────────────────────────────────────────
+
+const EMPTY_STATS: Stats = {
+  last_updated: "",
+  total_sessions: 0,
+  total_created: 0,
+  total_updated: 0,
+  total_skipped: 0,
+  skip_reasons: {},
+  recent_decisions: [],
+};
+
+const MAX_RECENT_DECISIONS = 50;
+
+export function loadStats(statsPath: string): Stats {
+  try {
+    const raw = fs.readFileSync(statsPath, "utf-8");
+    return JSON.parse(raw) as Stats;
+  } catch {
+    return { ...EMPTY_STATS, skip_reasons: {}, recent_decisions: [] };
+  }
+}
+
+export function saveStats(statsPath: string, stats: Stats): void {
+  const dir = path.dirname(statsPath);
+  fs.mkdirSync(dir, { recursive: true });
+  const tmpPath = statsPath + ".tmp";
+  fs.writeFileSync(tmpPath, JSON.stringify(stats, null, 2), "utf-8");
+  fs.renameSync(tmpPath, statsPath);
+}
+
+export function updateStats(
+  statsPath: string,
+  decision: string,
+  detail: string,
+  sessionId: string,
+  skillName?: string
+): void {
+  const stats = loadStats(statsPath);
+  stats.last_updated = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+  stats.total_sessions += 1;
+
+  if (decision === "CREATED") stats.total_created += 1;
+  else if (decision === "UPDATED") stats.total_updated += 1;
+  else if (decision === "SKIPPED") {
+    stats.total_skipped += 1;
+    stats.skip_reasons[detail] = (stats.skip_reasons[detail] ?? 0) + 1;
+  }
+
+  const rd: RecentDecision = {
+    ts: stats.last_updated,
+    session_id: sessionId,
+    decision: decision as "CREATED" | "UPDATED" | "SKIPPED",
+    detail,
+    ...(skillName ? { skill_name: skillName } : {}),
+  };
+  stats.recent_decisions.unshift(rd);
+  if (stats.recent_decisions.length > MAX_RECENT_DECISIONS) {
+    stats.recent_decisions = stats.recent_decisions.slice(0, MAX_RECENT_DECISIONS);
+  }
+
+  saveStats(statsPath, stats);
 }

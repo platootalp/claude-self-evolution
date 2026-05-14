@@ -2,15 +2,19 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { loadState, saveState, incrementCount, consumePending, getOrCreateSession, addJob, updateJob } from "../lib/state.js";
-import type { State, Job } from "../types.js";
+import { loadState, saveState, incrementCount, consumePending, getOrCreateSession, addJob, updateJob, initSessionState, loadSessionState, saveSessionState, updateSessionResult, loadStats, saveStats, updateStats } from "../lib/state.js";
+import type { State, Job, SessionStateFull, Stats } from "../types.js";
 
 let tmpDir: string;
 let statePath: string;
+let sessionsDir: string;
+let statsPath: string;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "evolve-state-test-"));
   statePath = path.join(tmpDir, "state.json");
+  sessionsDir = path.join(tmpDir, "sessions");
+  statsPath = path.join(tmpDir, "stats.json");
 });
 
 afterEach(() => {
@@ -128,5 +132,83 @@ describe("state", () => {
     expect(typeof state.sessions["s-concurrent"].count).toBe("number");
     expect(Number.isFinite(state.sessions["s-concurrent"].count)).toBe(true);
     expect(state.sessions["s-concurrent"].count).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("per-session state", () => {
+  it("initSessionState creates session directory with state.json", () => {
+    initSessionState(sessionsDir, "s-new", { count: 0, pending_review: false });
+    const statePath = path.join(sessionsDir, "s-new", "state.json");
+    expect(fs.existsSync(statePath)).toBe(true);
+    const state = JSON.parse(fs.readFileSync(statePath, "utf-8"));
+    expect(state.count).toBe(0);
+    expect(state.start_ts).toMatch(/^\d{4}-/);
+  });
+
+  it("loadSessionState reads from session directory", () => {
+    initSessionState(sessionsDir, "s-load", { count: 3, pending_review: false });
+    const state = loadSessionState(sessionsDir, "s-load");
+    expect(state.count).toBe(3);
+  });
+
+  it("updateSessionResult writes review results to session state", () => {
+    initSessionState(sessionsDir, "s-result", { count: 0, pending_review: true });
+    updateSessionResult(sessionsDir, "s-result", {
+      review_decision: "CREATED",
+      review_detail: "3-step workflow",
+      skill_name: "debug-foo",
+      review_duration_ms: 8000,
+    });
+    const state = loadSessionState(sessionsDir, "s-result");
+    expect(state.review_decision).toBe("CREATED");
+    expect(state.skill_name).toBe("debug-foo");
+  });
+});
+
+describe("stats.json", () => {
+  it("loadStats returns empty stats when file missing", () => {
+    const stats = loadStats(statsPath);
+    expect(stats.total_sessions).toBe(0);
+    expect(stats.total_created).toBe(0);
+  });
+
+  it("saveStats + loadStats roundtrip", () => {
+    const stats: Stats = {
+      last_updated: "2026-05-14T12:00:00Z",
+      total_sessions: 1,
+      total_created: 1,
+      total_updated: 0,
+      total_skipped: 0,
+      skip_reasons: {},
+      recent_decisions: [],
+    };
+    saveStats(statsPath, stats);
+    const loaded = loadStats(statsPath);
+    expect(loaded.total_created).toBe(1);
+  });
+
+  it("updateStats increments created counter and adds recent decision", () => {
+    updateStats(statsPath, "CREATED", "3-step debug", "s1", "debug-foo");
+    const stats = loadStats(statsPath);
+    expect(stats.total_sessions).toBe(1);
+    expect(stats.total_created).toBe(1);
+    expect(stats.recent_decisions).toHaveLength(1);
+    expect(stats.recent_decisions[0].decision).toBe("CREATED");
+    expect(stats.recent_decisions[0].skill_name).toBe("debug-foo");
+  });
+
+  it("updateStats increments skipped counter and records skip reason", () => {
+    updateStats(statsPath, "SKIPPED", "too specific", "s2");
+    const stats = loadStats(statsPath);
+    expect(stats.total_skipped).toBe(1);
+    expect(stats.skip_reasons["too specific"]).toBe(1);
+  });
+
+  it("updateStats caps recent_decisions at 50 entries", () => {
+    for (let i = 0; i < 55; i++) {
+      updateStats(statsPath, "SKIPPED", `reason-${i}`, `s-${i}`);
+    }
+    const stats = loadStats(statsPath);
+    expect(stats.recent_decisions.length).toBeLessThanOrEqual(50);
   });
 });
