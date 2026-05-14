@@ -1,0 +1,52 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import { loadConfig, resolveConfig, resolveLogLevel } from "../lib/config.js";
+
+let tmpDir: string;
+
+beforeEach(() => {
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "evolve-config-test-"));
+});
+
+afterEach(() => {
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+  delete process.env.SELF_EVOLUTION_LOG_LEVEL;
+  delete process.env.SELF_EVOLUTION_NUDGE_INTERVAL;
+});
+
+describe("config", () => {
+  it("loadConfig returns defaults when no config file exists", () => {
+    const config = loadConfig(tmpDir);
+    expect(config.nudge_interval).toBe(10);
+    expect(config.log_level).toBe("info");
+  });
+
+  it("loadConfig reads config.json from pluginRoot", () => {
+    fs.writeFileSync(path.join(tmpDir, "config.json"), JSON.stringify({ log_level: "debug", nudge_interval: 5 }));
+    const config = loadConfig(tmpDir);
+    expect(config.log_level).toBe("debug");
+    expect(config.nudge_interval).toBe(5);
+    expect(config.max_skill_size).toBe(15360);
+  });
+
+  it("resolveConfig applies env var overrides", () => {
+    process.env.SELF_EVOLUTION_LOG_LEVEL = "off";
+    process.env.SELF_EVOLUTION_NUDGE_INTERVAL = "3";
+    const config = resolveConfig(tmpDir);
+    expect(config.log_level).toBe("off");
+    expect(config.nudge_interval).toBe(3);
+  });
+
+  it("resolveLogLevel returns valid levels as-is", () => {
+    expect(resolveLogLevel({ log_level: "off" } as any)).toBe("off");
+    expect(resolveLogLevel({ log_level: "info" } as any)).toBe("info");
+    expect(resolveLogLevel({ log_level: "debug" } as any)).toBe("debug");
+  });
+
+  it("resolveLogLevel defaults invalid values to info", () => {
+    expect(resolveLogLevel({ log_level: "verbose" } as any)).toBe("info");
+    expect(resolveLogLevel({ log_level: "" } as any)).toBe("info");
+  });
+});

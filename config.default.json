@@ -4,5 +4,6 @@
   "review_model": "sonnet",
   "platform": "auto",
   "category_whitelist": ["debug", "refactor", "test", "deploy", "data", "web", "cli", "meta"],
-  "meta_skill_name": "evolve-skill-writer"
+  "meta_skill_name": "evolve-skill-writer",
+  "log_level": "info"
 }
