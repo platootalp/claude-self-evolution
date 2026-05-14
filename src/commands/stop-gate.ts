@@ -41,7 +41,9 @@ export function handleStopGate(
     });
     jobPromise.then((job: Job) => {
       addJob(statePath, job);
-    }).catch(() => {});
+    }).catch((err: unknown) => {
+      console.error("stop-gate: failed to spawn review process:", err);
+    });
     return { action: "allow", spawned: true, jobId: "pending" };
   } catch {
     return { action: "allow", spawned: false };

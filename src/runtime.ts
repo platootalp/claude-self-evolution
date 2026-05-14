@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { handleSessionStart } from "./commands/session-start.js";
@@ -124,8 +125,7 @@ if (process.argv[1]?.endsWith("runtime.ts") || process.argv[1]?.endsWith("runtim
   let stdinData = "";
   if (["post-tool-use", "stop-gate"].includes(command)) {
     try {
-      const { readFileSync } = await import("node:fs");
-      stdinData = readFileSync("/dev/stdin", "utf-8").trim();
+      stdinData = fs.readFileSync("/dev/stdin", "utf-8").trim();
     } catch {}
   }
 

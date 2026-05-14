@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { State, Job } from "../types.js";
+import type { State, Job, SessionState } from "../types.js";
 
 export function loadState(statePath: string): State {
   try {
@@ -19,7 +19,7 @@ export function saveState(statePath: string, state: State): void {
   fs.renameSync(tmpPath, statePath);
 }
 
-export function getOrCreateSession(statePath: string, sessionId: string) {
+export function getOrCreateSession(statePath: string, sessionId: string): SessionState {
   const state = loadState(statePath);
   if (!state.sessions[sessionId]) {
     state.sessions[sessionId] = { count: 0, pending_review: false };
