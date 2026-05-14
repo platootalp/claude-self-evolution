@@ -11,8 +11,6 @@ export function handleLogDecision(
 ): void {
   logger.logDecision(decision, detail, 0);
 
-  logger.info("review_decision", { decision, detail, skill_name: undefined });
-
   if (decision === "CREATED" || decision === "UPDATED" || decision === "SKIPPED") {
     const skillName = decision !== "SKIPPED" ? extractSkillName(detail) : undefined;
     updateStats(statsPath, decision as "CREATED" | "UPDATED" | "SKIPPED", detail, sessionId, skillName);

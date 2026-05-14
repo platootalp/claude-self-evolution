@@ -62,4 +62,27 @@ describe("handleStopGate", () => {
     expect(entry.event).toBe("review_launched");
     expect(entry.session_id).toBe(sessionId);
   });
+
+  it("returns allow without spawn when session_id is empty", () => {
+    const logger = createLogger(sessionsDir, sessionId, "info");
+    const result = handleStopGate(statePath, sessionsDir, sessionId, {
+      session_id: "",
+      transcript_path: "/tmp/transcript.jsonl",
+      stop_hook_active: false,
+    }, { pluginRoot: "/tmp", pluginData: tmpDir }, logger);
+    expect(result.action).toBe("allow");
+    expect(result.spawned).toBe(false);
+  });
+
+  it("returns allow without spawn when transcript_path is empty", () => {
+    incrementCount(statePath, "s1", 1);
+    const logger = createLogger(sessionsDir, sessionId, "info");
+    const result = handleStopGate(statePath, sessionsDir, sessionId, {
+      session_id: "s1",
+      transcript_path: "",
+      stop_hook_active: false,
+    }, { pluginRoot: "/tmp", pluginData: tmpDir }, logger);
+    expect(result.action).toBe("allow");
+    expect(result.spawned).toBe(false);
+  });
 });

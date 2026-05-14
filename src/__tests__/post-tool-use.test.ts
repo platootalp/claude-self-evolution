@@ -59,4 +59,11 @@ describe("handlePostToolUse with logging", () => {
     const state = loadState(statePath);
     expect(Object.keys(state.sessions)).toHaveLength(0);
   });
+
+  it("respects custom threshold", () => {
+    const logger = createLogger(sessionsDir, sessionId, "info");
+    handlePostToolUse(statePath, sessionsDir, { session_id: "s1", tool_name: "Bash", tool_input: {} }, logger, 1);
+    const state = loadState(statePath);
+    expect(state.sessions["s1"].pending_review).toBe(true);
+  });
 });
