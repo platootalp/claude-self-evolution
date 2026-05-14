@@ -1,0 +1,18 @@
+{
+  "name": "self-evolution",
+  "version": "0.5.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "esbuild": "^0.25.0",
+    "vitest": "^3.1.0",
+    "@types/node": "^22.0.0"
+  }
+}
