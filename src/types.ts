@@ -68,3 +68,40 @@ export interface SpawnOptions {
   pluginData: string;
   reviewModel?: string;
 }
+
+// ─── Logging ─────────────────────────────────────────────────────────
+
+export type LogLevel = "off" | "info" | "debug";
+
+// ─── Extended Session State ──────────────────────────────────────────
+
+export interface SessionStateFull {
+  count: number;
+  pending_review: boolean;
+  start_ts?: string;
+  end_ts?: string;
+  review_decision?: "CREATED" | "UPDATED" | "SKIPPED";
+  review_detail?: string;
+  skill_name?: string;
+  review_duration_ms?: number;
+}
+
+// ─── Stats ───────────────────────────────────────────────────────────
+
+export interface RecentDecision {
+  ts: string;
+  session_id: string;
+  decision: string;
+  detail: string;
+  skill_name?: string;
+}
+
+export interface Stats {
+  last_updated: string;
+  total_sessions: number;
+  total_created: number;
+  total_updated: number;
+  total_skipped: number;
+  skip_reasons: Record<string, number>;
+  recent_decisions: RecentDecision[];
+}
