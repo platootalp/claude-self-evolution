@@ -133,7 +133,7 @@ export function saveSessionState(
 export function updateSessionResult(
   sessionsDir: string,
   sessionId: string,
-  result: Pick<SessionStateFull, "review_decision"> & Partial<SessionStateFull>
+  result: Required<Pick<SessionStateFull, "review_decision">> & Partial<SessionStateFull>
 ): void {
   const state = loadSessionState(sessionsDir, sessionId);
   Object.assign(state, result, { end_ts: new Date().toISOString().replace(/\.\d{3}Z$/, "Z") });
@@ -173,7 +173,7 @@ export function saveStats(statsPath: string, stats: Stats): void {
 
 export function updateStats(
   statsPath: string,
-  decision: string,
+  decision: "CREATED" | "UPDATED" | "SKIPPED",
   detail: string,
   sessionId: string,
   skillName?: string
@@ -192,7 +192,7 @@ export function updateStats(
   const rd: RecentDecision = {
     ts: stats.last_updated,
     session_id: sessionId,
-    decision: decision as "CREATED" | "UPDATED" | "SKIPPED",
+    decision,
     detail,
     ...(skillName ? { skill_name: skillName } : {}),
   };
