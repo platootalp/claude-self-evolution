@@ -29,15 +29,19 @@ export function createLogger(sessionsDir: string, sessionId: string, logLevel: s
 
   function writeEntry(eventLevel: string, event: string, kv: Record<string, unknown>): void {
     if (!shouldLog(logLevel, eventLevel)) return;
-    const entry = {
-      ...kv,
-      ts: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
-      level: eventLevel,
-      event,
-      session_id: sessionId,
-      pid: process.pid,
-    };
-    appendLine(logPath, JSON.stringify(entry));
+    try {
+      const entry = {
+        ...kv,
+        ts: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
+        level: eventLevel,
+        event,
+        session_id: sessionId,
+        pid: process.pid,
+      };
+      appendLine(logPath, JSON.stringify(entry));
+    } catch {
+      // Best-effort: serialization or write failures must not abort the caller
+    }
   }
 
   return {
