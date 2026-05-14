@@ -75,9 +75,7 @@ export type LogLevel = "off" | "info" | "debug";
 
 // ─── Extended Session State ──────────────────────────────────────────
 
-export interface SessionStateFull {
-  count: number;
-  pending_review: boolean;
+export interface SessionStateFull extends SessionState {
   start_ts?: string;
   end_ts?: string;
   review_decision?: "CREATED" | "UPDATED" | "SKIPPED";
@@ -91,7 +89,7 @@ export interface SessionStateFull {
 export interface RecentDecision {
   ts: string;
   session_id: string;
-  decision: string;
+  decision: "CREATED" | "UPDATED" | "SKIPPED";
   detail: string;
   skill_name?: string;
 }
