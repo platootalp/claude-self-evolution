@@ -1,0 +1,41 @@
+[
+  {
+    "role": "user",
+    "content": "Create a new feature module for user authentication"
+  },
+  {
+    "role": "assistant",
+    "content": "I'll create the user authentication module with login, logout, and session management."
+  },
+  {
+    "role": "tool_use",
+    "name": "Write",
+    "input": {
+      "file_path": "src/auth/login.ts",
+      "content": "export function login(username: string, password: string): boolean {\n  return validateCredentials(username, password);\n}\n"
+    },
+    "content": "File created successfully"
+  },
+  {
+    "role": "tool_use",
+    "name": "Write",
+    "input": {
+      "file_path": "src/auth/logout.ts",
+      "content": "export function logout(): void {\n  clearSession();\n}\n"
+    },
+    "content": "File created successfully"
+  },
+  {
+    "role": "assistant",
+    "content": "Created the login and logout modules. Now adding the session management."
+  },
+  {
+    "role": "tool_use",
+    "name": "Write",
+    "input": {
+      "file_path": "src/auth/session.ts",
+      "content": "let currentSession: Session | null = null;\n\nexport function getSession(): Session | null {\n  return currentSession;\n}\n\nexport function setSession(session: Session): void {\n  currentSession = session;\n}\n\nexport function clearSession(): void {\n  currentSession = null;\n}\n"
+    },
+    "content": "File created successfully"
+  }
+]

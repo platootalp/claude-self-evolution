@@ -1,0 +1,14 @@
+[
+  {
+    "role": "assistant",
+    "content": "I'll check the current status."
+  },
+  {
+    "role": "tool_use",
+    "name": "Bash",
+    "input": {
+      "command": "git status"
+    },
+    "content": "On branch master\nnothing to commit, working tree clean"
+  }
+]
