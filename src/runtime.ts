@@ -9,7 +9,38 @@ import { handleReviewContext } from "./commands/review-context.js";
 import { handleLogDecision } from "./commands/log-decision.js";
 import { handleStatus } from "./commands/status.js";
 
-function resolvePaths(): { statePath: string; logPath: string; pluginRoot: string; pluginData: string } {
+interface Config {
+  nudge_interval: number;
+  max_skill_size: number;
+  review_model: string;
+  platform: string;
+  category_whitelist: string[];
+  meta_skill_name: string;
+}
+
+const DEFAULT_CONFIG: Config = {
+  nudge_interval: 10,
+  max_skill_size: 15360,
+  review_model: "sonnet",
+  platform: "auto",
+  category_whitelist: ["debug", "refactor", "test", "deploy", "data", "web", "cli", "meta"],
+  meta_skill_name: "evolve-skill-writer",
+};
+
+function loadConfig(pluginRoot: string): Config {
+  // 1. Try user override: <pluginRoot>/config.json
+  // 2. Fallback: <pluginRoot>/config.default.json
+  // 3. Fallback: hardcoded defaults
+  for (const name of ["config.json", "config.default.json"]) {
+    try {
+      const raw = fs.readFileSync(path.join(pluginRoot, name), "utf-8");
+      return { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
+    } catch {}
+  }
+  return { ...DEFAULT_CONFIG };
+}
+
+function resolvePaths(): { statePath: string; logPath: string; pluginRoot: string; pluginData: string; config: Config } {
   const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT ?? "";
   const pluginData = process.env.CLAUDE_PLUGIN_DATA ?? (() => {
     if (pluginRoot) {
@@ -19,37 +50,30 @@ function resolvePaths(): { statePath: string; logPath: string; pluginRoot: strin
     }
     return path.join(os.homedir(), ".claude", "plugins", "data", "self-evolution-self-evolution-marketplace");
   })();
+  const config = loadConfig(pluginRoot);
+
+  // Environment variables override config file
+  if (process.env.SELF_EVOLUTION_NUDGE_INTERVAL) config.nudge_interval = parseInt(process.env.SELF_EVOLUTION_NUDGE_INTERVAL, 10);
+  if (process.env.SELF_EVOLUTION_MAX_SKILL_SIZE) config.max_skill_size = parseInt(process.env.SELF_EVOLUTION_MAX_SKILL_SIZE, 10);
+  if (process.env.SELF_EVOLUTION_REVIEW_MODEL) config.review_model = process.env.SELF_EVOLUTION_REVIEW_MODEL;
+  if (process.env.SELF_EVOLUTION_PLATFORM) config.platform = process.env.SELF_EVOLUTION_PLATFORM;
+
   return {
     statePath: path.join(pluginData, "state.json"),
     logPath: path.join(process.env.SELF_EVOLUTION_LOG_DIR ?? path.join(os.homedir(), ".claude", "logs"), "self-evolution.jsonl"),
     pluginRoot,
     pluginData,
+    config,
   };
 }
 
-function getNudgeInterval(): number {
-  const env = process.env.SELF_EVOLUTION_NUDGE_INTERVAL;
-  if (env) return parseInt(env, 10);
-  const opt = process.env.CLAUDE_PLUGIN_OPTION_nudge_interval;
-  if (opt) return parseInt(opt, 10);
-  return 10;
-}
-
-function getMaxSkillSize(): number {
-  const env = process.env.SELF_EVOLUTION_MAX_SKILL_SIZE;
-  if (env) return parseInt(env, 10);
-  const opt = process.env.CLAUDE_PLUGIN_OPTION_max_skill_size_kb;
-  if (opt) return parseInt(opt, 10);
-  return 15360;
-}
-
 export function runCommand(command: string, args: string[], stdinData: string): number {
-  const paths = resolvePaths();
+  const { statePath, logPath, pluginRoot, pluginData, config } = resolvePaths();
 
   try {
     switch (command) {
       case "session-start":
-        handleSessionStart(paths.logPath, {
+        handleSessionStart(logPath, {
           CLAUDE_PLUGIN_ROOT: process.env.CLAUDE_PLUGIN_ROOT ?? "",
           CLAUDE_PLUGIN_DATA: process.env.CLAUDE_PLUGIN_DATA ?? "",
         });
@@ -58,18 +82,18 @@ export function runCommand(command: string, args: string[], stdinData: string): 
       case "post-tool-use": {
         if (!stdinData) return 0;
         const input = JSON.parse(stdinData);
-        handlePostToolUse(paths.statePath, input, getNudgeInterval());
+        handlePostToolUse(statePath, input, config.nudge_interval);
         return 0;
       }
 
       case "stop-gate": {
         if (!stdinData) return 0;
         const input = JSON.parse(stdinData);
-        handleStopGate(paths.statePath, input, {
-          pluginRoot: paths.pluginRoot,
-          pluginData: paths.pluginData,
-          reviewModel: process.env.CLAUDE_PLUGIN_OPTION_review_model,
-          platform: process.env.CLAUDE_PLUGIN_OPTION_platform,
+        handleStopGate(statePath, input, {
+          pluginRoot,
+          pluginData,
+          reviewModel: config.review_model,
+          platform: config.platform,
         });
         return 0;
       }
@@ -80,7 +104,7 @@ export function runCommand(command: string, args: string[], stdinData: string): 
           process.stdout.write(JSON.stringify({ allowed: false, reason: "missing --path or --content" }) + "\n");
           return 1;
         }
-        scanArgs.maxSkillSize = scanArgs.maxSkillSize ?? getMaxSkillSize();
+        scanArgs.maxSkillSize = scanArgs.maxSkillSize ?? config.max_skill_size;
         const result = handleSecurityScan(scanArgs);
         process.stdout.write(JSON.stringify(result) + "\n");
         return 0;
@@ -97,12 +121,12 @@ export function runCommand(command: string, args: string[], stdinData: string): 
         const decision = args[0] || "unknown";
         const detail = args[1] || "";
         const sessionId = args[2] || "";
-        handleLogDecision(paths.logPath, decision, detail, sessionId);
+        handleLogDecision(logPath, decision, detail, sessionId);
         return 0;
       }
 
       case "status": {
-        const result = handleStatus(paths.statePath);
+        const result = handleStatus(statePath);
         process.stdout.write(JSON.stringify(result, null, 2) + "\n");
         return 0;
       }

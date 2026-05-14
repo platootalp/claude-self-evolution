@@ -2,6 +2,7 @@
 
 
 // src/runtime.ts
+import fs6 from "node:fs";
 import path6 from "node:path";
 import os3 from "node:os";
 
@@ -232,7 +233,8 @@ function handleStopGate(statePath, input, options) {
     });
     jobPromise.then((job) => {
       addJob(statePath, job);
-    }).catch(() => {
+    }).catch((err) => {
+      console.error("stop-gate: failed to spawn review process:", err);
     });
     return { action: "allow", spawned: true, jobId: "pending" };
   } catch {
@@ -411,6 +413,24 @@ function handleStatus(statePath) {
 }
 
 // src/runtime.ts
+var DEFAULT_CONFIG = {
+  nudge_interval: 10,
+  max_skill_size: 15360,
+  review_model: "sonnet",
+  platform: "auto",
+  category_whitelist: ["debug", "refactor", "test", "deploy", "data", "web", "cli", "meta"],
+  meta_skill_name: "evolve-skill-writer"
+};
+function loadConfig(pluginRoot) {
+  for (const name of ["config.json", "config.default.json"]) {
+    try {
+      const raw = fs6.readFileSync(path6.join(pluginRoot, name), "utf-8");
+      return { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
+    } catch {
+    }
+  }
+  return { ...DEFAULT_CONFIG };
+}
 function resolvePaths() {
   const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT ?? "";
   const pluginData = process.env.CLAUDE_PLUGIN_DATA ?? (() => {
@@ -421,33 +441,25 @@ function resolvePaths() {
     }
     return path6.join(os3.homedir(), ".claude", "plugins", "data", "self-evolution-self-evolution-marketplace");
   })();
+  const config = loadConfig(pluginRoot);
+  if (process.env.SELF_EVOLUTION_NUDGE_INTERVAL) config.nudge_interval = parseInt(process.env.SELF_EVOLUTION_NUDGE_INTERVAL, 10);
+  if (process.env.SELF_EVOLUTION_MAX_SKILL_SIZE) config.max_skill_size = parseInt(process.env.SELF_EVOLUTION_MAX_SKILL_SIZE, 10);
+  if (process.env.SELF_EVOLUTION_REVIEW_MODEL) config.review_model = process.env.SELF_EVOLUTION_REVIEW_MODEL;
+  if (process.env.SELF_EVOLUTION_PLATFORM) config.platform = process.env.SELF_EVOLUTION_PLATFORM;
   return {
     statePath: path6.join(pluginData, "state.json"),
     logPath: path6.join(process.env.SELF_EVOLUTION_LOG_DIR ?? path6.join(os3.homedir(), ".claude", "logs"), "self-evolution.jsonl"),
     pluginRoot,
-    pluginData
+    pluginData,
+    config
   };
 }
-function getNudgeInterval() {
-  const env = process.env.SELF_EVOLUTION_NUDGE_INTERVAL;
-  if (env) return parseInt(env, 10);
-  const opt = process.env.CLAUDE_PLUGIN_OPTION_nudge_interval;
-  if (opt) return parseInt(opt, 10);
-  return 10;
-}
-function getMaxSkillSize() {
-  const env = process.env.SELF_EVOLUTION_MAX_SKILL_SIZE;
-  if (env) return parseInt(env, 10);
-  const opt = process.env.CLAUDE_PLUGIN_OPTION_max_skill_size_kb;
-  if (opt) return parseInt(opt, 10);
-  return 15360;
-}
 function runCommand(command, args, stdinData) {
-  const paths = resolvePaths();
+  const { statePath, logPath, pluginRoot, pluginData, config } = resolvePaths();
   try {
     switch (command) {
       case "session-start":
-        handleSessionStart(paths.logPath, {
+        handleSessionStart(logPath, {
           CLAUDE_PLUGIN_ROOT: process.env.CLAUDE_PLUGIN_ROOT ?? "",
           CLAUDE_PLUGIN_DATA: process.env.CLAUDE_PLUGIN_DATA ?? ""
         });
@@ -455,17 +467,17 @@ function runCommand(command, args, stdinData) {
       case "post-tool-use": {
         if (!stdinData) return 0;
         const input = JSON.parse(stdinData);
-        handlePostToolUse(paths.statePath, input, getNudgeInterval());
+        handlePostToolUse(statePath, input, config.nudge_interval);
         return 0;
       }
       case "stop-gate": {
         if (!stdinData) return 0;
         const input = JSON.parse(stdinData);
-        handleStopGate(paths.statePath, input, {
-          pluginRoot: paths.pluginRoot,
-          pluginData: paths.pluginData,
-          reviewModel: process.env.CLAUDE_PLUGIN_OPTION_review_model,
-          platform: process.env.CLAUDE_PLUGIN_OPTION_platform
+        handleStopGate(statePath, input, {
+          pluginRoot,
+          pluginData,
+          reviewModel: config.review_model,
+          platform: config.platform
         });
         return 0;
       }
@@ -475,7 +487,7 @@ function runCommand(command, args, stdinData) {
           process.stdout.write(JSON.stringify({ allowed: false, reason: "missing --path or --content" }) + "\n");
           return 1;
         }
-        scanArgs.maxSkillSize = scanArgs.maxSkillSize ?? getMaxSkillSize();
+        scanArgs.maxSkillSize = scanArgs.maxSkillSize ?? config.max_skill_size;
         const result = handleSecurityScan(scanArgs);
         process.stdout.write(JSON.stringify(result) + "\n");
         return 0;
@@ -490,11 +502,11 @@ function runCommand(command, args, stdinData) {
         const decision = args[0] || "unknown";
         const detail = args[1] || "";
         const sessionId = args[2] || "";
-        handleLogDecision(paths.logPath, decision, detail, sessionId);
+        handleLogDecision(logPath, decision, detail, sessionId);
         return 0;
       }
       case "status": {
-        const result = handleStatus(paths.statePath);
+        const result = handleStatus(statePath);
         process.stdout.write(JSON.stringify(result, null, 2) + "\n");
         return 0;
       }
@@ -515,8 +527,7 @@ if (process.argv[1]?.endsWith("runtime.ts") || process.argv[1]?.endsWith("runtim
   let stdinData = "";
   if (["post-tool-use", "stop-gate"].includes(command)) {
     try {
-      const { readFileSync } = await import("node:fs");
-      stdinData = readFileSync("/dev/stdin", "utf-8").trim();
+      stdinData = fs6.readFileSync("/dev/stdin", "utf-8").trim();
     } catch {
     }
   }
