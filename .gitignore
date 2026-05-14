@@ -2,4 +2,4 @@ tests/tmp/
 *.swp
 .DS_Store
 node_modules/
-dist/
+.worktrees/
