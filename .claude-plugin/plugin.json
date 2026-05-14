@@ -1,7 +1,7 @@
 {
   "name": "self-evolution",
-  "version": "0.4.0",
-  "description": "Auto-curate ~/.claude/skills/ from your conversations via in-session AgentHook with hard-gated security and meta-skill driven content generation.",
+  "version": "0.5.0",
+  "description": "Auto-curate ~/.claude/skills/ from your conversations via in-session AgentHook with companion-mode background review, hard-gated security and meta-skill driven content generation.",
   "author": {
     "name": "platootalp"
   },
@@ -14,6 +14,37 @@
   "commandsPath": "commands",
   "hooksPath": "hooks/hooks.json",
   "skillsPath": "skills",
+  "userConfig": [
+    {
+      "name": "nudge_interval",
+      "type": "number",
+      "default": 10,
+      "min": 1,
+      "max": 100,
+      "description": "Interval (in tool calls) between nudge reminders"
+    },
+    {
+      "name": "max_skill_size_kb",
+      "type": "number",
+      "default": 15360,
+      "min": 1024,
+      "max": 51200,
+      "description": "Maximum skill size in KB"
+    },
+    {
+      "name": "review_model",
+      "type": "string",
+      "default": "sonnet",
+      "description": "Model to use for skill review"
+    },
+    {
+      "name": "platform",
+      "type": "string",
+      "default": "auto",
+      "enum": ["auto", "claude-code", "codex", "cursor"],
+      "description": "Target platform for compatibility"
+    }
+  ],
   "settings": {
     "nudgeIntervalToolCalls": 10,
     "skillTargetScope": "user",
