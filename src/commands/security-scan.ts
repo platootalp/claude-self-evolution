@@ -1,5 +1,6 @@
 import { scanWrite } from "../lib/security.js";
 import type { ScanResult } from "../types.js";
+import type { Logger } from "../lib/logger.js";
 
 interface SecurityScanArgs {
   path: string;
@@ -7,10 +8,22 @@ interface SecurityScanArgs {
   maxSkillSize?: number;
 }
 
-export function handleSecurityScan(args: SecurityScanArgs): ScanResult {
-  return scanWrite(args.path, args.content, {
+export function handleSecurityScan(args: SecurityScanArgs, logger?: Logger): ScanResult {
+  const result = scanWrite(args.path, args.content, {
     maxSkillSize: args.maxSkillSize,
   });
+  if (!result.allowed) {
+    logger?.info("security_blocked", {
+      category: result.reason ?? "unknown",
+      target_path: args.path,
+    });
+  } else {
+    logger?.debug("security_scan_detail", {
+      target_path: args.path,
+      result: "passed",
+    });
+  }
+  return result;
 }
 
 export function parseSecurityScanArgs(argv: string[]): SecurityScanArgs {
