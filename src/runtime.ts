@@ -1,8 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { resolveConfig } from "./lib/config.js";
+import { resolveConfig, resolveLogLevel } from "./lib/config.js";
 import type { Config } from "./lib/config.js";
+import { createLogger } from "./lib/logger.js";
 import { handleSessionStart } from "./commands/session-start.js";
 import { handlePostToolUse } from "./commands/post-tool-use.js";
 import { handleStopGate } from "./commands/stop-gate.js";
@@ -35,33 +36,40 @@ function resolvePaths(): { statePath: string; sessionsDir: string; statsPath: st
 
 export function runCommand(command: string, args: string[], stdinData: string): number {
   const { statePath, sessionsDir, statsPath, pluginRoot, pluginData, config } = resolvePaths();
-  const logPath = path.join(process.env.SELF_EVOLUTION_LOG_DIR ?? path.join(os.homedir(), ".claude", "logs"), "self-evolution.jsonl");
+  const logLevel = resolveLogLevel(config);
 
   try {
     switch (command) {
-      case "session-start":
-        handleSessionStart(logPath, {
+      case "session-start": {
+        const sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`;
+        const logger = createLogger(sessionsDir, sessionId, logLevel);
+        handleSessionStart(sessionsDir, sessionId, logger, {
           CLAUDE_PLUGIN_ROOT: process.env.CLAUDE_PLUGIN_ROOT ?? "",
           CLAUDE_PLUGIN_DATA: process.env.CLAUDE_PLUGIN_DATA ?? "",
         });
         return 0;
+      }
 
       case "post-tool-use": {
         if (!stdinData) return 0;
         const input = JSON.parse(stdinData);
-        handlePostToolUse(statePath, input, config.nudge_interval);
+        const sessionId = input.session_id ?? process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown";
+        const logger = createLogger(sessionsDir, sessionId, logLevel);
+        handlePostToolUse(statePath, sessionsDir, input, logger, config.nudge_interval);
         return 0;
       }
 
       case "stop-gate": {
         if (!stdinData) return 0;
         const input = JSON.parse(stdinData);
-        handleStopGate(statePath, input, {
+        const sessionId = input.session_id ?? process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown";
+        const logger = createLogger(sessionsDir, sessionId, logLevel);
+        handleStopGate(statePath, sessionsDir, sessionId, input, {
           pluginRoot,
           pluginData,
           reviewModel: config.review_model,
           platform: config.platform,
-        });
+        }, logger);
         return 0;
       }
 
@@ -72,14 +80,18 @@ export function runCommand(command: string, args: string[], stdinData: string): 
           return 1;
         }
         scanArgs.maxSkillSize = scanArgs.maxSkillSize ?? config.max_skill_size;
-        const result = handleSecurityScan(scanArgs);
+        const sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown";
+        const logger = createLogger(sessionsDir, sessionId, logLevel);
+        const result = handleSecurityScan(scanArgs, logger);
         process.stdout.write(JSON.stringify(result) + "\n");
         return 0;
       }
 
       case "review-context": {
         const transcriptPath = args[0] || process.env.SELF_EVOLUTION_TRANSCRIPT_PATH || "";
-        const result = handleReviewContext({ transcriptPath });
+        const sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown";
+        const logger = createLogger(sessionsDir, sessionId, logLevel);
+        const result = handleReviewContext({ transcriptPath, sessionId }, logger);
         process.stdout.write(JSON.stringify(result, null, 2) + "\n");
         return 0;
       }
@@ -87,13 +99,14 @@ export function runCommand(command: string, args: string[], stdinData: string): 
       case "log-decision": {
         const decision = args[0] || "unknown";
         const detail = args[1] || "";
-        const sessionId = args[2] || "";
-        handleLogDecision(logPath, decision, detail, sessionId);
+        const sessionId = args[2] || (process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown");
+        const logger = createLogger(sessionsDir, sessionId, logLevel);
+        handleLogDecision(sessionsDir, statsPath, sessionId, decision, detail, logger);
         return 0;
       }
 
       case "status": {
-        const result = handleStatus(statePath);
+        const result = handleStatus(statePath, statsPath);
         process.stdout.write(JSON.stringify(result, null, 2) + "\n");
         return 0;
       }
