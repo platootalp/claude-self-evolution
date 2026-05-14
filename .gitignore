@@ -1,6 +1,4 @@
-data/nudge-state.json
-data/trigger-flag-*.json
-data/*.lock
 tests/tmp/
 *.swp
 .DS_Store
+.worktrees/
