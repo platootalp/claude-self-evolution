@@ -65,6 +65,7 @@ export function runCommand(command: string, args: string[], stdinData: string): 
           pluginRoot,
           pluginData,
           reviewModel: config.review_model,
+          reviewMaxTurns: config.review_max_turns,
           platform: config.platform,
         }, logger);
         return 0;

@@ -13,6 +13,7 @@ interface StopGateOptions {
   pluginRoot: string;
   pluginData: string;
   reviewModel?: string;
+  reviewMaxTurns?: number;
   platform?: string;
 }
 
@@ -47,6 +48,7 @@ export function handleStopGate(
       pluginRoot: options.pluginRoot,
       pluginData: options.pluginData,
       reviewModel: options.reviewModel,
+      reviewMaxTurns: options.reviewMaxTurns,
     });
 
     jobPromise.then((job: Job) => {
