@@ -1,5 +1,6 @@
 import path from "node:path";
 import os from "node:os";
+import fs from "node:fs";
 import type { ScanResult, SecurityPattern, SecurityMatch } from "../types.js";
 
 const SKILLS_DIR = path.join(os.homedir(), ".claude", "skills");
@@ -148,6 +149,98 @@ export function scanWrite(
   if (cautionMatches.length > 0) {
     const categories = [...new Set(cautionMatches.map((m) => m.category))];
     return { allowed: true, reason: `caution: ${categories.join(", ")} pattern`, matches: allMatches };
+  }
+
+  return { allowed: true };
+}
+
+// ─── Directory Structural Scan ────────────────────────────────────────
+
+interface DirectoryScanOptions {
+  maxFiles?: number;
+  maxFileSize?: number;
+  maxTotalSize?: number;
+  binaryExtensions?: string[];
+}
+
+export function scanDirectory(
+  dirPath: string,
+  options: DirectoryScanOptions = {}
+): ScanResult {
+  const maxFiles = options.maxFiles ?? 50;
+  const maxFileSize = options.maxFileSize ?? 262144;
+  const maxTotalSize = options.maxTotalSize ?? 1048576;
+  const binaryExtensions = options.binaryExtensions ?? [".exe", ".dll", ".so", ".dylib", ".bin", ".bat", ".cmd", ".ps1", ".com"];
+
+  const normalizedDir = path.normalize(dirPath);
+  let fileCount = 0;
+  let totalSize = 0;
+
+  // Resolve real path to handle macOS /var → /private/var symlink
+  let resolvedBaseDir: string;
+  try {
+    resolvedBaseDir = fs.realpathSync(normalizedDir);
+  } catch {
+    resolvedBaseDir = normalizedDir;
+  }
+
+  function walkDir(currentDir: string): ScanResult | null {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(currentDir, { withFileTypes: true });
+    } catch {
+      return { allowed: false, reason: `cannot scan directory: ${currentDir}` };
+    }
+
+    for (const entry of entries) {
+      const fullPath = path.join(currentDir, entry.name);
+
+      if (entry.isDirectory()) {
+        const subResult = walkDir(fullPath);
+        if (subResult && !subResult.allowed) return subResult;
+        continue;
+      }
+
+      const lstat = fs.lstatSync(fullPath);
+      if (lstat.isSymbolicLink()) {
+        const resolved = fs.realpathSync(fullPath);
+        const normalizedResolved = path.normalize(resolved);
+        const baseDir = path.normalize(resolvedBaseDir);
+        if (!normalizedResolved.startsWith(baseDir + path.sep) && normalizedResolved !== baseDir) {
+          return { allowed: false, reason: `symlink escape: ${entry.name} -> ${resolved}` };
+        }
+      }
+
+      const ext = path.extname(entry.name).toLowerCase();
+      if (binaryExtensions.includes(ext)) {
+        return { allowed: false, reason: `binary file: ${entry.name}` };
+      }
+
+      const stat = fs.statSync(fullPath);
+      if (stat.size > maxFileSize) {
+        return { allowed: false, reason: `file too large: ${entry.name} (${stat.size} > ${maxFileSize} bytes)` };
+      }
+
+      totalSize += stat.size;
+      fileCount++;
+    }
+
+    return null;
+  }
+
+  try {
+    const walkResult = walkDir(dirPath);
+    if (walkResult && !walkResult.allowed) return walkResult;
+
+    if (fileCount > maxFiles) {
+      return { allowed: false, reason: `too many files: ${fileCount} > ${maxFiles}` };
+    }
+
+    if (totalSize > maxTotalSize) {
+      return { allowed: false, reason: `total size too large: ${totalSize} > ${maxTotalSize} bytes` };
+    }
+  } catch {
+    return { allowed: false, reason: `cannot scan directory: ${dirPath}` };
   }
 
   return { allowed: true };

@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { scanWrite } from "../lib/security.js";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { scanWrite, scanDirectory } from "../lib/security.js";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -347,5 +347,83 @@ describe("security scanWrite", () => {
     const result = scanWrite(path.join(SKILLS_DIR, "uni5", "SKILL.md"), "Normal skill content with no hidden chars");
     expect(result.allowed).toBe(true);
     expect(result.reason).toBeUndefined();
+  });
+});
+
+describe("security scanDirectory", () => {
+  let skillDir: string;
+
+  beforeEach(() => {
+    skillDir = path.join(os.tmpdir(), `evolve-scan-dir-test-${Date.now()}`);
+    fs.mkdirSync(path.join(skillDir, "myskill"), { recursive: true });
+    fs.writeFileSync(path.join(skillDir, "myskill", "SKILL.md"), "---\nname: test\n---\n\nSafe content.");
+  });
+
+  afterEach(() => {
+    fs.rmSync(skillDir, { recursive: true, force: true });
+  });
+
+  it("allows valid skill directory", () => {
+    const result = scanDirectory(path.join(skillDir, "myskill"));
+    expect(result.allowed).toBe(true);
+  });
+
+  it("rejects binary file .exe", () => {
+    fs.writeFileSync(path.join(skillDir, "myskill", "evil.exe"), "MZ\x90\x00");
+    const result = scanDirectory(path.join(skillDir, "myskill"));
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("binary");
+  });
+
+  it("rejects binary file .dll", () => {
+    fs.writeFileSync(path.join(skillDir, "myskill", "evil.dll"), "binary");
+    const result = scanDirectory(path.join(skillDir, "myskill"));
+    expect(result.allowed).toBe(false);
+  });
+
+  it("rejects symlink pointing outside skill dir", () => {
+    const outsideDir = path.join(os.tmpdir(), `evolve-outside-${Date.now()}`);
+    fs.mkdirSync(outsideDir, { recursive: true });
+    fs.writeFileSync(path.join(outsideDir, "secret"), "secret data");
+    try {
+      fs.symlinkSync(outsideDir, path.join(skillDir, "myskill", "escape"));
+      const result = scanDirectory(path.join(skillDir, "myskill"));
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain("symlink");
+    } finally {
+      fs.rmSync(outsideDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects skill with too many files", () => {
+    for (let i = 0; i < 55; i++) {
+      fs.writeFileSync(path.join(skillDir, "myskill", `file${i}.md`), "x");
+    }
+    const result = scanDirectory(path.join(skillDir, "myskill"), { maxFiles: 50 });
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("too many files");
+  });
+
+  it("rejects skill exceeding total size limit", () => {
+    for (let i = 0; i < 10; i++) {
+      fs.writeFileSync(path.join(skillDir, "myskill", `big${i}.md`), "x".repeat(200000));
+    }
+    const result = scanDirectory(path.join(skillDir, "myskill"), { maxTotalSize: 1048576, maxFileSize: 300000 });
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("total size");
+  });
+
+  it("rejects single file exceeding size limit", () => {
+    fs.writeFileSync(path.join(skillDir, "myskill", "bigfile.md"), "y".repeat(300000));
+    const result = scanDirectory(path.join(skillDir, "myskill"), { maxFileSize: 262144 });
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("file too large");
+  });
+
+  it("allows symlink inside skill dir", () => {
+    fs.writeFileSync(path.join(skillDir, "myskill", "target.md"), "safe");
+    fs.symlinkSync(path.join(skillDir, "myskill", "target.md"), path.join(skillDir, "myskill", "link.md"));
+    const result = scanDirectory(path.join(skillDir, "myskill"));
+    expect(result.allowed).toBe(true);
   });
 });
