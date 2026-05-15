@@ -73,11 +73,14 @@ export function runCommand(command: string, args: string[], stdinData: string): 
 
       case "security-scan": {
         const scanArgs = parseSecurityScanArgs(args);
-        if (!scanArgs.path || !scanArgs.content) {
-          process.stdout.write(JSON.stringify({ allowed: false, reason: "missing --path or --content" }) + "\n");
+        if (!scanArgs.scanDir && (!scanArgs.path || !scanArgs.content)) {
+          process.stdout.write(JSON.stringify({ allowed: false, reason: "missing --path/--content or --scan-dir" }) + "\n");
           return 1;
         }
-        scanArgs.maxSkillSize = scanArgs.maxSkillSize ?? config.max_skill_size;
+        scanArgs.maxSkillSize = scanArgs.maxSkillSize ?? config.max_skill_file_size;
+        scanArgs.maxFiles = scanArgs.maxFiles ?? config.max_files_per_skill;
+        scanArgs.maxFileSize = scanArgs.maxFileSize ?? config.max_skill_file_size;
+        scanArgs.maxTotalSize = scanArgs.maxTotalSize ?? config.max_skill_total_size;
         const sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown";
         const logger = createLogger(sessionsDir, sessionId, logLevel);
         const result = handleSecurityScan(scanArgs, logger);
