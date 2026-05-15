@@ -125,13 +125,12 @@ Multi-prompt and structured output make reviews more targeted and observable. Fr
 | Category | Risk | Example Patterns |
 |----------|------|-----------------|
 | Jailbreak | Medium | "DAN mode", "developer mode", "STAN", "jailbreak", role-hijacking phrases |
-| Supply chain | Medium | `curl | sh`, `pip install` without version pin, `npm install -g` from untrusted, `git clone` into executable path |
+| Supply chain | Medium | `curl \| sh`, `pip install` without version pin, `npm install -g` from untrusted, `git clone` into executable path |
 | Privilege escalation | Medium | `allowed-tools` injection, `sudo` in commands, `setuid`, `chmod +s` |
 | Agent config tampering | Medium | Modification of `AGENTS.md`, `CLAUDE.md`, `.claude/` config files |
-| Data exfiltration (enhanced) | Medium | `os.environ` piping, environment variable logging, `/proc/self/environ` |
 
 **Implementation:**
-- Add ~25 patterns to the structured pattern array (extending P0 infrastructure)
+- Add ~20 patterns to the structured pattern array (extending P0 infrastructure)
 - Severity: mix of `dangerous` and `caution`
 
 ## Out-of-Scope (Deferred)
@@ -155,4 +154,4 @@ Multi-prompt and structured output make reviews more targeted and observable. Fr
 3. `validate-skill` rejects malformed frontmatter, invalid names, name collisions
 4. `max_skill_size` default is 100,000; total-size, file-count, single-file limits enforced
 5. `verify-skill` catches post-write issues and triggers reviewer cleanup
-6. Security scan covers 10 of 15 categories (P0 + P1)
+6. Security scan covers 9 of 15 categories (P0 + P1)

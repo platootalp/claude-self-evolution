@@ -55,7 +55,7 @@ Counter reset and anti-nesting are reliability bugs (not enhancements) — witho
 | Network attacks | High | Reverse shell (`/dev/tcp/`), tunnel (`ngrok`, `cloudflared`), hardcoded IP:port, `socat` |
 | Execution | High | `subprocess`, `os.system`, `os.exec`, `child_process.exec`, `eval()` with user input |
 | Path traversal | High | `../../../`, `/etc/passwd`, `/proc/self`, `/root/.ssh` |
-| Data exfiltration | High | `curl $TOKEN`, `os.environ` to external, DNS exfil, Markdown image exfil (`![...](https://attacker.com/...`) |
+| Data exfiltration | High | `curl $TOKEN`, `os.environ` piping to external, DNS exfil, Markdown image exfil (`![...](https://attacker.com/...`), environment variable logging, `/proc/self/environ` |
 
 **Implementation:**
 - Refactor `security.ts` patterns into structured data: `{ id, severity, category, pattern, description }`
