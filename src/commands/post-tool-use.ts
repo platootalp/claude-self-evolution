@@ -10,6 +10,7 @@ export function handlePostToolUse(
   threshold: number = 10
 ): number {
   if (!input.session_id) return 0;
+  if (process.env.SELF_EVOLUTION_REVIEW_MODE === "1") return 0;
   const stateBefore = loadState(statePath);
   const prevPending = stateBefore.sessions[input.session_id]?.pending_review ?? false;
   const newCount = incrementCount(statePath, input.session_id, threshold);

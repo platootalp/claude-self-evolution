@@ -67,4 +67,22 @@ describe("handlePostToolUse with logging", () => {
     const state = loadState(statePath);
     expect(state.sessions["s1"].pending_review).toBe(true);
   });
+
+  it("skips increment when SELF_EVOLUTION_REVIEW_MODE is set", () => {
+    const originalEnv = process.env.SELF_EVOLUTION_REVIEW_MODE;
+    process.env.SELF_EVOLUTION_REVIEW_MODE = "1";
+    try {
+      const logger = createLogger(sessionsDir, sessionId, "info");
+      const count = handlePostToolUse(statePath, sessionsDir, { session_id: "s1", tool_name: "Bash", tool_input: {} }, logger, 10);
+      expect(count).toBe(0);
+      const state = loadState(statePath);
+      expect(state.sessions["s1"]).toBeUndefined();
+    } finally {
+      if (originalEnv === undefined) {
+        delete process.env.SELF_EVOLUTION_REVIEW_MODE;
+      } else {
+        process.env.SELF_EVOLUTION_REVIEW_MODE = originalEnv;
+      }
+    }
+  });
 });
