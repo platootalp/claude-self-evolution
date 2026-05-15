@@ -130,6 +130,32 @@ describe("spawner", () => {
     expect(spawner).toBeInstanceOf(CodexSpawner);
   });
 
+  it("ClaudeCodeSpawner uses configurable max-turns", async () => {
+    const { spawn } = await import("node:child_process");
+    (spawn as ReturnType<typeof import("node:child_process").spawn>).mockImplementation(() => {
+      const fakeChild = {
+        pid: 99996,
+        unref: vi.fn(),
+      } as unknown as ReturnType<typeof spawn>;
+      return fakeChild as ReturnType<typeof spawn>;
+    });
+
+    const spawner = new ClaudeCodeSpawner();
+    await spawner.spawnReviewProcess({
+      sessionId: "s1",
+      transcriptPath: "/tmp/transcript.jsonl",
+      pluginRoot: "/tmp/plugin",
+      pluginData: "/tmp/data",
+      reviewMaxTurns: 12,
+    });
+
+    const spawnArgs = (spawn as any).mock.calls[0];
+    const args = spawnArgs[1] as string[];
+    const maxTurnsIdx = args.indexOf("--max-turns");
+    expect(maxTurnsIdx).not.toBe(-1);
+    expect(args[maxTurnsIdx + 1]).toBe("12");
+  });
+
   it("ClaudeCodeSpawner passes SELF_EVOLUTION_REVIEW_MODE in spawn env", async () => {
     const { spawn } = await import("node:child_process");
     (spawn as ReturnType<typeof import("node:child_process").spawn>).mockImplementation(() => {

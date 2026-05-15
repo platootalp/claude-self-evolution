@@ -83,6 +83,7 @@ export interface SpawnOptions {
   pluginRoot: string;
   pluginData: string;
   reviewModel?: string;
+  reviewMaxTurns?: number;
 }
 
 // ─── Logging ─────────────────────────────────────────────────────────

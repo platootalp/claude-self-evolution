@@ -14,6 +14,10 @@ afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
   delete process.env.SELF_EVOLUTION_LOG_LEVEL;
   delete process.env.SELF_EVOLUTION_NUDGE_INTERVAL;
+  delete process.env.SELF_EVOLUTION_REVIEW_MAX_TURNS;
+  delete process.env.SELF_EVOLUTION_MAX_SKILL_FILE_SIZE;
+  delete process.env.SELF_EVOLUTION_MAX_SKILL_TOTAL_SIZE;
+  delete process.env.SELF_EVOLUTION_MAX_FILES_PER_SKILL;
 });
 
 describe("config", () => {
@@ -48,5 +52,17 @@ describe("config", () => {
   it("resolveLogLevel defaults invalid values to info", () => {
     expect(resolveLogLevel({ log_level: "verbose" } as any)).toBe("info");
     expect(resolveLogLevel({ log_level: "" } as any)).toBe("info");
+  });
+
+  it("config has review_max_turns default of 8", () => {
+    const config = loadConfig(tmpDir);
+    expect(config.review_max_turns).toBe(8);
+  });
+
+  it("resolveConfig applies SELF_EVOLUTION_REVIEW_MAX_TURNS env override", () => {
+    process.env.SELF_EVOLUTION_REVIEW_MAX_TURNS = "12";
+    const config = resolveConfig(tmpDir);
+    expect(config.review_max_turns).toBe(12);
+    delete process.env.SELF_EVOLUTION_REVIEW_MAX_TURNS;
   });
 });

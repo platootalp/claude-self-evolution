@@ -56,7 +56,7 @@ export class ClaudeCodeSpawner implements AgentSpawner {
     const args = [
       "-p", prompt,
       "--allowedTools", "Read,Write,Bash,Glob,Grep,Skill",
-      "--max-turns", "20",
+      "--max-turns", String(opts.reviewMaxTurns ?? 8),
       "--output-format", "json",
     ];
 
