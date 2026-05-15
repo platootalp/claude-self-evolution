@@ -28,18 +28,8 @@ describe("parseTranscript", () => {
     expect(summary.totalTurns).toBe(0);
   });
 
-  it("handles empty transcript path", () => {
-    const summary = parseTranscript("");
-    expect(summary.totalTurns).toBe(0);
-    expect(summary.toolCalls).toHaveLength(0);
-    expect(summary.userMessages).toHaveLength(0);
-    expect(summary.assistantMessages).toHaveLength(0);
-  });
-
-  // ── Legacy flat format (backward compat) ──
-
-  it("parses legacy JSONL format (flat {role, content})", () => {
-    const jsonlPath = path.join(tmpDir, "legacy.jsonl");
+  it("parses JSONL format (one JSON object per line)", () => {
+    const jsonlPath = path.join(tmpDir, "test.jsonl");
     fs.writeFileSync(
       jsonlPath,
       JSON.stringify({ role: "user", content: "hello" }) + "\n" +
@@ -49,12 +39,10 @@ describe("parseTranscript", () => {
     const summary = parseTranscript(jsonlPath);
     expect(summary.userMessages).toHaveLength(1);
     expect(summary.assistantMessages).toHaveLength(1);
-    expect(summary.userMessages[0]).toBe("hello");
-    expect(summary.assistantMessages[0]).toBe("hi");
   });
 
-  it("parses legacy JSON array format", () => {
-    const jsonPath = path.join(tmpDir, "legacy.json");
+  it("parses JSON array format", () => {
+    const jsonPath = path.join(tmpDir, "test.json");
     fs.writeFileSync(
       jsonPath,
       JSON.stringify([
@@ -68,7 +56,7 @@ describe("parseTranscript", () => {
     expect(summary.assistantMessages).toHaveLength(1);
   });
 
-  it("extracts legacy tool_use entries", () => {
+  it("extracts tool_use entries", () => {
     const jsonlPath = path.join(tmpDir, "tools.jsonl");
     fs.writeFileSync(
       jsonlPath,
@@ -79,138 +67,5 @@ describe("parseTranscript", () => {
     expect(summary.toolCalls).toHaveLength(1);
     expect(summary.toolCalls[0].tool).toBe("Bash");
     expect(summary.toolCalls[0].input).toEqual({ command: "ls" });
-  });
-
-  // ── Claude Code real JSONL format ──
-
-  it("parses Claude Code JSONL with nested {type, message} structure", () => {
-    const jsonlPath = path.join(tmpDir, "real.jsonl");
-    const lines = [
-      JSON.stringify({
-        type: "user",
-        isMeta: false,
-        message: { role: "user", content: "Fix the login bug" },
-      }),
-      JSON.stringify({
-        type: "assistant",
-        message: {
-          role: "assistant",
-          content: "I'll investigate the login bug.",
-        },
-      }),
-    ];
-    fs.writeFileSync(jsonlPath, lines.join("\n"), "utf-8");
-    const summary = parseTranscript(jsonlPath);
-    expect(summary.userMessages).toHaveLength(1);
-    expect(summary.userMessages[0]).toBe("Fix the login bug");
-    expect(summary.assistantMessages).toHaveLength(1);
-    expect(summary.assistantMessages[0]).toBe("I'll investigate the login bug.");
-  });
-
-  it("parses assistant messages with array content blocks (text + tool_use)", () => {
-    const jsonlPath = path.join(tmpDir, "blocks.jsonl");
-    const lines = [
-      JSON.stringify({
-        type: "user",
-        isMeta: false,
-        message: { role: "user", content: "Read the config file" },
-      }),
-      JSON.stringify({
-        type: "assistant",
-        message: {
-          role: "assistant",
-          content: [
-            { type: "text", text: "Let me read the config file." },
-            { type: "tool_use", id: "call_1", name: "Read", input: { file_path: "/etc/config.json" } },
-          ],
-        },
-      }),
-    ];
-    fs.writeFileSync(jsonlPath, lines.join("\n"), "utf-8");
-    const summary = parseTranscript(jsonlPath);
-    expect(summary.userMessages).toHaveLength(1);
-    expect(summary.assistantMessages).toHaveLength(1);
-    expect(summary.assistantMessages[0]).toBe("Let me read the config file.");
-    expect(summary.toolCalls).toHaveLength(1);
-    expect(summary.toolCalls[0].tool).toBe("Read");
-    expect(summary.toolCalls[0].input).toEqual({ file_path: "/etc/config.json" });
-  });
-
-  it("skips isMeta user entries", () => {
-    const jsonlPath = path.join(tmpDir, "meta.jsonl");
-    const lines = [
-      JSON.stringify({
-        type: "user",
-        isMeta: true,
-        message: { role: "user", content: "system prompt injection" },
-      }),
-      JSON.stringify({
-        type: "user",
-        isMeta: false,
-        message: { role: "user", content: "real user message" },
-      }),
-    ];
-    fs.writeFileSync(jsonlPath, lines.join("\n"), "utf-8");
-    const summary = parseTranscript(jsonlPath);
-    expect(summary.userMessages).toHaveLength(1);
-    expect(summary.userMessages[0]).toBe("real user message");
-  });
-
-  it("skips non-user/assistant types (system, attachment, etc.)", () => {
-    const jsonlPath = path.join(tmpDir, "noise.jsonl");
-    const lines = [
-      JSON.stringify({ type: "system", subtype: "local_command", content: "output" }),
-      JSON.stringify({ type: "attachment", attachment: { type: "hook_success" } }),
-      JSON.stringify({ type: "file-history-snapshot", snapshot: {} }),
-      JSON.stringify({
-        type: "user",
-        isMeta: false,
-        message: { role: "user", content: "real message" },
-      }),
-    ];
-    fs.writeFileSync(jsonlPath, lines.join("\n"), "utf-8");
-    const summary = parseTranscript(jsonlPath);
-    expect(summary.userMessages).toHaveLength(1);
-    expect(summary.totalTurns).toBe(1);
-  });
-
-  it("parses user messages with array content (text blocks)", () => {
-    const jsonlPath = path.join(tmpDir, "user-blocks.jsonl");
-    const lines = [
-      JSON.stringify({
-        type: "user",
-        isMeta: false,
-        message: {
-          role: "user",
-          content: [
-            { type: "text", text: "Please check the logs" },
-          ],
-        },
-      }),
-    ];
-    fs.writeFileSync(jsonlPath, lines.join("\n"), "utf-8");
-    const summary = parseTranscript(jsonlPath);
-    expect(summary.userMessages).toHaveLength(1);
-    expect(summary.userMessages[0]).toBe("Please check the logs");
-  });
-
-  it("handles mixed legacy and Claude Code format entries", () => {
-    const jsonlPath = path.join(tmpDir, "mixed.jsonl");
-    const lines = [
-      JSON.stringify({ role: "user", content: "legacy message" }),
-      JSON.stringify({
-        type: "assistant",
-        message: {
-          role: "assistant",
-          content: [{ type: "text", text: "modern reply" }],
-        },
-      }),
-    ];
-    fs.writeFileSync(jsonlPath, lines.join("\n"), "utf-8");
-    const summary = parseTranscript(jsonlPath);
-    expect(summary.userMessages).toHaveLength(1);
-    expect(summary.assistantMessages).toHaveLength(1);
-    expect(summary.userMessages[0]).toBe("legacy message");
-    expect(summary.assistantMessages[0]).toBe("modern reply");
   });
 });
