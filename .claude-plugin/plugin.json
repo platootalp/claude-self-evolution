@@ -1,6 +1,6 @@
 {
   "name": "self-evolution",
-  "version": "0.6.2",
+  "version": "0.7.0",
   "description": "Auto-curate ~/.claude/skills/ from your conversations via companion-mode background review, hard-gated security and meta-skill driven content generation.",
   "author": {
     "name": "platootalp"

@@ -2,7 +2,7 @@
 
 
 // src/runtime.ts
-import fs9 from "node:fs";
+import fs10 from "node:fs";
 import path8 from "node:path";
 import os4 from "node:os";
 
@@ -11,12 +11,16 @@ import fs from "node:fs";
 import path from "node:path";
 var DEFAULT_CONFIG = {
   nudge_interval: 10,
-  max_skill_size: 15360,
   review_model: "sonnet",
   platform: "auto",
   category_whitelist: ["debug", "refactor", "test", "deploy", "data", "web", "cli", "meta"],
   meta_skill_name: "evolve-skill-writer",
-  log_level: "info"
+  log_level: "info",
+  review_max_turns: 8,
+  max_skill_file_size: 262144,
+  max_skill_total_size: 1048576,
+  max_files_per_skill: 50,
+  binary_extensions: [".exe", ".dll", ".so", ".dylib", ".bin", ".bat", ".cmd", ".ps1", ".com"]
 };
 function loadConfig(pluginRoot) {
   for (const name of ["config.json", "config.default.json"]) {
@@ -31,10 +35,13 @@ function loadConfig(pluginRoot) {
 function resolveConfig(pluginRoot) {
   const config = loadConfig(pluginRoot);
   if (process.env.SELF_EVOLUTION_NUDGE_INTERVAL) config.nudge_interval = parseInt(process.env.SELF_EVOLUTION_NUDGE_INTERVAL, 10);
-  if (process.env.SELF_EVOLUTION_MAX_SKILL_SIZE) config.max_skill_size = parseInt(process.env.SELF_EVOLUTION_MAX_SKILL_SIZE, 10);
   if (process.env.SELF_EVOLUTION_REVIEW_MODEL) config.review_model = process.env.SELF_EVOLUTION_REVIEW_MODEL;
   if (process.env.SELF_EVOLUTION_PLATFORM) config.platform = process.env.SELF_EVOLUTION_PLATFORM;
   if (process.env.SELF_EVOLUTION_LOG_LEVEL) config.log_level = process.env.SELF_EVOLUTION_LOG_LEVEL;
+  if (process.env.SELF_EVOLUTION_REVIEW_MAX_TURNS) config.review_max_turns = parseInt(process.env.SELF_EVOLUTION_REVIEW_MAX_TURNS, 10);
+  if (process.env.SELF_EVOLUTION_MAX_SKILL_FILE_SIZE) config.max_skill_file_size = parseInt(process.env.SELF_EVOLUTION_MAX_SKILL_FILE_SIZE, 10);
+  if (process.env.SELF_EVOLUTION_MAX_SKILL_TOTAL_SIZE) config.max_skill_total_size = parseInt(process.env.SELF_EVOLUTION_MAX_SKILL_TOTAL_SIZE, 10);
+  if (process.env.SELF_EVOLUTION_MAX_FILES_PER_SKILL) config.max_files_per_skill = parseInt(process.env.SELF_EVOLUTION_MAX_FILES_PER_SKILL, 10);
   return config;
 }
 function resolveLogLevel(config) {
@@ -125,6 +132,15 @@ function incrementCount(statePath, sessionId, threshold = 10) {
   }
   saveState(statePath, state);
   return state.sessions[sessionId].count;
+}
+function resetCount(statePath, sessionId) {
+  const state = loadState(statePath);
+  if (!state.sessions[sessionId]) {
+    state.sessions[sessionId] = { count: 0, pending_review: false };
+  }
+  state.sessions[sessionId].count = 0;
+  state.sessions[sessionId].pending_review = false;
+  saveState(statePath, state);
 }
 function consumePending(statePath, sessionId) {
   const state = loadState(statePath);
@@ -238,6 +254,11 @@ function handleSessionStart(sessionsDir, sessionId, logger) {
 // src/commands/post-tool-use.ts
 function handlePostToolUse(statePath, sessionsDir, input, logger, threshold = 10) {
   if (!input.session_id) return 0;
+  if (input.tool_name === "Skill") {
+    resetCount(statePath, input.session_id);
+    return 0;
+  }
+  if (process.env.SELF_EVOLUTION_REVIEW_MODE === "1") return 0;
   const stateBefore = loadState(statePath);
   const prevPending = stateBefore.sessions[input.session_id]?.pending_review ?? false;
   const newCount = incrementCount(statePath, input.session_id, threshold);
@@ -296,7 +317,7 @@ var ClaudeCodeSpawner = class {
       "--allowedTools",
       "Read,Write,Bash,Glob,Grep,Skill",
       "--max-turns",
-      "20",
+      String(opts.reviewMaxTurns ?? 8),
       "--output-format",
       "json"
     ];
@@ -311,7 +332,8 @@ var ClaudeCodeSpawner = class {
         CLAUDE_PLUGIN_ROOT: opts.pluginRoot,
         CLAUDE_PLUGIN_DATA: opts.pluginData,
         SELF_EVOLUTION_SESSION_ID: opts.sessionId,
-        SELF_EVOLUTION_TRANSCRIPT_PATH: opts.transcriptPath
+        SELF_EVOLUTION_TRANSCRIPT_PATH: opts.transcriptPath,
+        SELF_EVOLUTION_REVIEW_MODE: "1"
       }
     });
     child.unref();
@@ -360,6 +382,9 @@ function handleStopGate(statePath, sessionsDir, sessionId, input, options, logge
   if (input.stop_hook_active) {
     return { action: "allow", spawned: false };
   }
+  if (process.env.SELF_EVOLUTION_REVIEW_MODE === "1") {
+    return { action: "allow", spawned: false };
+  }
   if (!input.session_id || !input.transcript_path) {
     return { action: "allow", spawned: false };
   }
@@ -376,7 +401,8 @@ function handleStopGate(statePath, sessionsDir, sessionId, input, options, logge
       transcriptPath: input.transcript_path,
       pluginRoot: options.pluginRoot,
       pluginData: options.pluginData,
-      reviewModel: options.reviewModel
+      reviewModel: options.reviewModel,
+      reviewMaxTurns: options.reviewMaxTurns
     });
     jobPromise.then((job) => {
       logger.info("review_launched", { session_id: input.session_id, pid: job.pid });
@@ -401,10 +427,66 @@ function handleStopGate(statePath, sessionsDir, sessionId, input, options, logge
 // src/lib/security.ts
 import path5 from "node:path";
 import os from "node:os";
+import fs5 from "node:fs";
 var SKILLS_DIR = path5.join(os.homedir(), ".claude", "skills");
-var PI_PATTERN = /(?:ignore previous|disregard above|<\||system:.*you are now|dump.*database|forget.*instructions)/i;
-var BASH_PATTERN = /rm -rf \/(?: |$)|curl[^|]*\| *(?:ba)?sh|eval\s+\$\(|wget[^|]*-O\s*-/;
-var SECRET_PATTERN = /(?:sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]+PRIVATE KEY-----|ghp_[A-Za-z0-9]{36})/;
+var SECURITY_PATTERNS = [
+  // Prompt injection (migrated from PI_PATTERN)
+  { id: "pi-ignore-previous", severity: "dangerous", category: "prompt_injection", pattern: /(?:ignore previous|disregard above|<\||system:.*you are now|dump.*database|forget.*instructions)/i, description: "Prompt injection attempt" },
+  // Dangerous bash (migrated from BASH_PATTERN)
+  { id: "bash-rf-slash", severity: "dangerous", category: "execution", pattern: /rm -rf \/(?: |$)|curl[^|]*\| *(?:ba)?sh|eval\s+\$\(|wget[^|]*-O\s*-/, description: "Dangerous bash command" },
+  // Secret leaks (migrated from SECRET_PATTERN)
+  { id: "secret-api-key", severity: "dangerous", category: "secret", pattern: /(?:sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]+PRIVATE KEY-----|ghp_[A-Za-z0-9]{36})/, description: "Secret or credential leak" },
+  // Persistence
+  { id: "persist-crontab", severity: "dangerous", category: "persistence", pattern: /crontab\s+/, description: "Crontab persistence" },
+  { id: "persist-bashrc", severity: "dangerous", category: "persistence", pattern: /\.(?:bashrc|zshrc|profile|bash_profile)\b/, description: "Shell RC file modification" },
+  { id: "persist-authorized-keys", severity: "dangerous", category: "persistence", pattern: /authorized_keys/, description: "SSH authorized_keys modification" },
+  { id: "persist-systemd", severity: "dangerous", category: "persistence", pattern: /systemctl\s+(?:enable|start|create)/, description: "Systemd service persistence" },
+  { id: "persist-launchd", severity: "dangerous", category: "persistence", pattern: /launchctl\s+(?:load|start)/, description: "Launchd persistence" },
+  { id: "persist-at", severity: "caution", category: "persistence", pattern: /\bat\b\s+/, description: "At command scheduled execution" },
+  // Network
+  { id: "net-reverse-shell-tcp", severity: "dangerous", category: "network", pattern: /\/dev\/tcp\//, description: "Bash /dev/tcp reverse shell" },
+  { id: "net-reverse-shell", severity: "dangerous", category: "network", pattern: /(?:nc|ncat|netcat)\s+.*-[elv]/, description: "Netcat reverse shell" },
+  { id: "net-tunnel", severity: "dangerous", category: "network", pattern: /(?:ngrok|cloudflared)\s+/, description: "Tunneling tool usage" },
+  { id: "net-hardcoded-ip", severity: "caution", category: "network", pattern: /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{2,5}\b/, description: "Hardcoded IP:port" },
+  { id: "net-socat", severity: "dangerous", category: "network", pattern: /socat\s+/, description: "Socat network relay" },
+  { id: "net-nc-listen", severity: "dangerous", category: "network", pattern: /nc\s+-l/, description: "Netcat listener" },
+  // Execution
+  { id: "exec-subprocess", severity: "dangerous", category: "execution", pattern: /subprocess\.(?:call|run|Popen|check_output)/, description: "Python subprocess execution" },
+  { id: "exec-os-system", severity: "dangerous", category: "execution", pattern: /os\.system\s*\(/, description: "os.system execution" },
+  { id: "exec-os-exec", severity: "dangerous", category: "execution", pattern: /os\.exec[a-z]+\s*\(/, description: "os.exec family execution" },
+  { id: "exec-child-process", severity: "dangerous", category: "execution", pattern: /child_process\.exec(?:Sync)?\s*\(/, description: "Node.js child_process.exec" },
+  { id: "exec-eval", severity: "caution", category: "execution", pattern: /eval\s*\(/, description: "eval() execution" },
+  { id: "exec-popen", severity: "dangerous", category: "execution", pattern: /(?:os\.)?popen\s*\(/, description: "popen execution" },
+  // Path traversal
+  { id: "path-traversal-dot", severity: "dangerous", category: "path_traversal", pattern: /\.\.[\\\/]/, description: "Directory traversal with ../" },
+  { id: "path-etc-passwd", severity: "dangerous", category: "path_traversal", pattern: /\/etc\/passwd/, description: "Access to /etc/passwd" },
+  { id: "path-proc-self", severity: "dangerous", category: "path_traversal", pattern: /\/proc\/self/, description: "Access to /proc/self" },
+  { id: "path-root-ssh", severity: "dangerous", category: "path_traversal", pattern: /\/root\/\.ssh/, description: "Access to /root/.ssh" },
+  { id: "path-etc-shadow", severity: "dangerous", category: "path_traversal", pattern: /\/etc\/shadow/, description: "Access to /etc/shadow" },
+  // Data exfiltration
+  { id: "exfil-curl-token", severity: "dangerous", category: "data_exfiltration", pattern: /curl.*\$\{?[A-Z_]+[A-Z_0-9]*\}?/, description: "curl with env var token" },
+  { id: "exfil-environ-pipe", severity: "dangerous", category: "data_exfiltration", pattern: /os\.environ.*\|/, description: "os.environ piped externally" },
+  { id: "exfil-dns", severity: "dangerous", category: "data_exfiltration", pattern: /(?:nslookup|dig|host)\s+.*\$/, description: "DNS exfiltration" },
+  { id: "exfil-markdown-image", severity: "dangerous", category: "data_exfiltration", pattern: /!\[.*\]\(https?:\/\/[^)]*\$\{/, description: "Markdown image exfiltration" },
+  { id: "exfil-env-log", severity: "dangerous", category: "data_exfiltration", pattern: /(?:console\.log|print|logger).*os\.environ/, description: "Environment variable logging" },
+  { id: "exfil-proc-environ", severity: "dangerous", category: "data_exfiltration", pattern: /\/proc\/self\/environ/, description: "Access to /proc/self/environ" },
+  { id: "exfil-webhook-secret", severity: "dangerous", category: "data_exfiltration", pattern: /(?:webhook|hook)\s+.*(?:token|key|secret|password)/, description: "Webhook with secret" },
+  // Unicode
+  { id: "unicode-bidi-override", severity: "dangerous", category: "unicode", pattern: /[‪-‮]/, description: "Bidirectional override character" },
+  { id: "unicode-zero-width", severity: "caution", category: "unicode", pattern: /[​‌‍﻿]/, description: "Zero-width or BOM character" },
+  { id: "unicode-function-app", severity: "caution", category: "unicode", pattern: /[⁡-⁤]/, description: "Invisible function application character" },
+  { id: "unicode-soft-hyphen", severity: "caution", category: "unicode", pattern: /­/, description: "Soft hyphen" },
+  { id: "unicode-grapheme-joiner", severity: "caution", category: "unicode", pattern: /͏/, description: "Combining grapheme joiner" }
+];
+function scanContent(content) {
+  const matches = [];
+  for (const p of SECURITY_PATTERNS) {
+    if (p.pattern.test(content)) {
+      matches.push({ id: p.id, severity: p.severity, category: p.category, description: p.description });
+    }
+  }
+  return matches;
+}
 function scanWrite(targetPath, content, options = {}) {
   const maxSkillSize = options.maxSkillSize ?? 15360;
   const normalizedTarget = path5.normalize(targetPath);
@@ -419,19 +501,12 @@ function scanWrite(targetPath, content, options = {}) {
       return { allowed: false, reason: "path_escape: write to ~/.claude/skills/ must be to <name>/SKILL.md" };
     }
   }
-  if (PI_PATTERN.test(content)) {
-    return { allowed: false, reason: "prompt-injection pattern" };
-  }
-  if (BASH_PATTERN.test(content)) {
-    return { allowed: false, reason: "dangerous bash pattern" };
-  }
-  if (SECRET_PATTERN.test(content)) {
-    return { allowed: false, reason: "secret leak pattern" };
-  }
+  const rawMatches = scanContent(content);
   const base64Pattern = /[A-Za-z0-9+/]{20,}={0,2}/g;
   const MAX_TOKENS = 50;
   let tokenCount = 0;
   let match;
+  const base64Matches = [];
   while ((match = base64Pattern.exec(content)) !== null && tokenCount < MAX_TOKENS) {
     tokenCount++;
     try {
@@ -439,38 +514,119 @@ function scanWrite(targetPath, content, options = {}) {
       if (decoded.length < 4) continue;
       const printable = decoded.replace(/[^\x20-\x7E\t\n]/g, "").length;
       if (printable * 100 < decoded.length * 80) continue;
-      if (PI_PATTERN.test(decoded)) {
-        return { allowed: false, reason: "prompt-injection pattern (base64-decoded)" };
-      }
-      if (BASH_PATTERN.test(decoded)) {
-        return { allowed: false, reason: "dangerous bash pattern (base64-decoded)" };
-      }
-      if (SECRET_PATTERN.test(decoded)) {
-        return { allowed: false, reason: "secret leak pattern (base64-decoded)" };
+      const decodedMatches = scanContent(decoded);
+      for (const m of decodedMatches) {
+        base64Matches.push({ ...m, id: `${m.id}__base64` });
       }
     } catch {
     }
   }
+  const allMatches = [...rawMatches, ...base64Matches];
+  const dangerousMatches = allMatches.filter((m) => m.severity === "dangerous");
+  const cautionMatches = allMatches.filter((m) => m.severity === "caution");
+  if (dangerousMatches.length > 0) {
+    const categories = [...new Set(dangerousMatches.map((m) => m.category))];
+    const isBase64 = dangerousMatches.some((m) => m.id.includes("__base64"));
+    const reason = isBase64 ? `${categories.join(", ")} pattern (base64-decoded)` : `${categories.join(", ")} pattern`;
+    return { allowed: false, reason, matches: allMatches };
+  }
   const size = Buffer.byteLength(content, "utf-8");
   if (size > maxSkillSize) {
     return { allowed: false, reason: `file too large (${size} > ${maxSkillSize} bytes)` };
+  }
+  if (cautionMatches.length > 0) {
+    const categories = [...new Set(cautionMatches.map((m) => m.category))];
+    return { allowed: true, reason: `caution: ${categories.join(", ")} pattern`, matches: allMatches };
+  }
+  return { allowed: true };
+}
+function scanDirectory(dirPath, options = {}) {
+  const maxFiles = options.maxFiles ?? 50;
+  const maxFileSize = options.maxFileSize ?? 262144;
+  const maxTotalSize = options.maxTotalSize ?? 1048576;
+  const binaryExtensions = options.binaryExtensions ?? [".exe", ".dll", ".so", ".dylib", ".bin", ".bat", ".cmd", ".ps1", ".com"];
+  const normalizedDir = path5.normalize(dirPath);
+  let fileCount = 0;
+  let totalSize = 0;
+  let resolvedBaseDir;
+  try {
+    resolvedBaseDir = fs5.realpathSync(normalizedDir);
+  } catch {
+    resolvedBaseDir = normalizedDir;
+  }
+  function walkDir(currentDir) {
+    let entries;
+    try {
+      entries = fs5.readdirSync(currentDir, { withFileTypes: true });
+    } catch {
+      return { allowed: false, reason: `cannot scan directory: ${currentDir}` };
+    }
+    for (const entry of entries) {
+      const fullPath = path5.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        const subResult = walkDir(fullPath);
+        if (subResult && !subResult.allowed) return subResult;
+        continue;
+      }
+      const lstat = fs5.lstatSync(fullPath);
+      if (lstat.isSymbolicLink()) {
+        const resolved = fs5.realpathSync(fullPath);
+        const normalizedResolved = path5.normalize(resolved);
+        const baseDir = path5.normalize(resolvedBaseDir);
+        if (!normalizedResolved.startsWith(baseDir + path5.sep) && normalizedResolved !== baseDir) {
+          return { allowed: false, reason: `symlink escape: ${entry.name} -> ${resolved}` };
+        }
+      }
+      const ext = path5.extname(entry.name).toLowerCase();
+      if (binaryExtensions.includes(ext)) {
+        return { allowed: false, reason: `binary file: ${entry.name}` };
+      }
+      const stat = fs5.statSync(fullPath);
+      if (stat.size > maxFileSize) {
+        return { allowed: false, reason: `file too large: ${entry.name} (${stat.size} > ${maxFileSize} bytes)` };
+      }
+      totalSize += stat.size;
+      fileCount++;
+    }
+    return null;
+  }
+  try {
+    const walkResult = walkDir(dirPath);
+    if (walkResult && !walkResult.allowed) return walkResult;
+    if (fileCount > maxFiles) {
+      return { allowed: false, reason: `too many files: ${fileCount} > ${maxFiles}` };
+    }
+    if (totalSize > maxTotalSize) {
+      return { allowed: false, reason: `total size too large: ${totalSize} > ${maxTotalSize} bytes` };
+    }
+  } catch {
+    return { allowed: false, reason: `cannot scan directory: ${dirPath}` };
   }
   return { allowed: true };
 }
 
 // src/commands/security-scan.ts
 function handleSecurityScan(args, logger) {
-  const result = scanWrite(args.path, args.content, {
-    maxSkillSize: args.maxSkillSize
-  });
+  let result;
+  if (args.scanDir) {
+    result = scanDirectory(args.scanDir, {
+      maxFiles: args.maxFiles,
+      maxFileSize: args.maxFileSize,
+      maxTotalSize: args.maxTotalSize
+    });
+  } else {
+    result = scanWrite(args.path, args.content, {
+      maxSkillSize: args.maxSkillSize
+    });
+  }
   if (!result.allowed) {
     logger?.info("security_blocked", {
       category: result.reason ?? "unknown",
-      target_path: args.path
+      target_path: args.scanDir ?? args.path
     });
   } else {
     logger?.debug("security_scan_detail", {
-      target_path: args.path,
+      target_path: args.scanDir ?? args.path,
       result: "passed"
     });
   }
@@ -485,18 +641,26 @@ function parseSecurityScanArgs(argv) {
       args.content = argv[++i];
     } else if (argv[i] === "--max-size" && argv[i + 1]) {
       args.maxSkillSize = parseInt(argv[++i], 10);
+    } else if (argv[i] === "--scan-dir" && argv[i + 1]) {
+      args.scanDir = argv[++i];
+    } else if (argv[i] === "--max-files" && argv[i + 1]) {
+      args.maxFiles = parseInt(argv[++i], 10);
+    } else if (argv[i] === "--max-file-size" && argv[i + 1]) {
+      args.maxFileSize = parseInt(argv[++i], 10);
+    } else if (argv[i] === "--max-total-size" && argv[i + 1]) {
+      args.maxTotalSize = parseInt(argv[++i], 10);
     }
   }
   return args;
 }
 
 // src/commands/review-context.ts
-import fs6 from "node:fs";
+import fs7 from "node:fs";
 import path6 from "node:path";
 import os2 from "node:os";
 
 // src/lib/transcript.ts
-import fs5 from "node:fs";
+import fs6 from "node:fs";
 function parseTranscript(transcriptPath) {
   const summary = {
     toolCalls: [],
@@ -510,7 +674,7 @@ function parseTranscript(transcriptPath) {
   }
   let raw;
   try {
-    raw = fs5.readFileSync(transcriptPath, "utf-8").trim();
+    raw = fs6.readFileSync(transcriptPath, "utf-8").trim();
   } catch (err) {
     process.stderr.write(`[self-evolution] parseTranscript: failed to read "${transcriptPath}": ${err}
 `);
@@ -559,7 +723,7 @@ function handleReviewContext(options, logger) {
   const transcript = parseTranscript(options.transcriptPath);
   let existingSkills = [];
   try {
-    const entries = fs6.readdirSync(skillsDir, { withFileTypes: true });
+    const entries = fs7.readdirSync(skillsDir, { withFileTypes: true });
     existingSkills = entries.filter((e) => e.isDirectory()).map((e) => e.name);
   } catch {
   }
@@ -579,7 +743,7 @@ function handleReviewContext(options, logger) {
 }
 
 // src/commands/log-decision.ts
-import fs7 from "node:fs";
+import fs8 from "node:fs";
 import path7 from "node:path";
 import os3 from "node:os";
 function handleLogDecision(sessionsDir, statsPath, sessionId, decision, detail, durationMs, logger) {
@@ -595,9 +759,9 @@ function handleLogDecision(sessionsDir, statsPath, sessionId, decision, detail, 
     if (skillName) {
       const skillPath = path7.join(os3.homedir(), ".claude", "skills", skillName, "SKILL.md");
       try {
-        const stat = fs7.statSync(skillPath);
+        const stat = fs8.statSync(skillPath);
         logger.info("skill_written", { path: skillPath, size_bytes: stat.size });
-        const content = fs7.readFileSync(skillPath, "utf-8");
+        const content = fs8.readFileSync(skillPath, "utf-8");
         logger.debug("skill_content_preview", { preview: content.slice(0, 200) });
       } catch {
         logger.info("skill_written", { skill_name: skillName });
@@ -611,11 +775,11 @@ function extractSkillName(detail) {
 }
 
 // src/commands/status.ts
-import fs8 from "node:fs";
+import fs9 from "node:fs";
 function handleStatus(statePath, statsPath) {
   const state = loadState(statePath);
   let stats = null;
-  if (fs8.existsSync(statsPath)) {
+  if (fs9.existsSync(statsPath)) {
     stats = loadStats(statsPath);
   }
   return {
@@ -676,17 +840,21 @@ function runCommand(command, args, stdinData) {
           pluginRoot,
           pluginData,
           reviewModel: config.review_model,
+          reviewMaxTurns: config.review_max_turns,
           platform: config.platform
         }, logger);
         return 0;
       }
       case "security-scan": {
         const scanArgs = parseSecurityScanArgs(args);
-        if (!scanArgs.path || !scanArgs.content) {
-          process.stdout.write(JSON.stringify({ allowed: false, reason: "missing --path or --content" }) + "\n");
+        if (!scanArgs.scanDir && (!scanArgs.path || !scanArgs.content)) {
+          process.stdout.write(JSON.stringify({ allowed: false, reason: "missing --path/--content or --scan-dir" }) + "\n");
           return 1;
         }
-        scanArgs.maxSkillSize = scanArgs.maxSkillSize ?? config.max_skill_size;
+        scanArgs.maxSkillSize = scanArgs.maxSkillSize ?? config.max_skill_file_size;
+        scanArgs.maxFiles = scanArgs.maxFiles ?? config.max_files_per_skill;
+        scanArgs.maxFileSize = scanArgs.maxFileSize ?? config.max_skill_file_size;
+        scanArgs.maxTotalSize = scanArgs.maxTotalSize ?? config.max_skill_total_size;
         const sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown";
         const logger = createLogger(sessionsDir, sessionId, logLevel);
         const result = handleSecurityScan(scanArgs, logger);
@@ -735,7 +903,7 @@ if (process.argv[1]?.endsWith("runtime.ts") || process.argv[1]?.endsWith("runtim
   let stdinData = "";
   if (["post-tool-use", "stop-gate"].includes(command)) {
     try {
-      stdinData = fs9.readFileSync("/dev/stdin", "utf-8").trim();
+      stdinData = fs10.readFileSync("/dev/stdin", "utf-8").trim();
     } catch {
     }
   }
