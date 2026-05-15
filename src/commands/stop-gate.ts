@@ -27,6 +27,9 @@ export function handleStopGate(
   if (input.stop_hook_active) {
     return { action: "allow", spawned: false };
   }
+  if (process.env.SELF_EVOLUTION_REVIEW_MODE === "1") {
+    return { action: "allow", spawned: false };
+  }
   if (!input.session_id || !input.transcript_path) {
     return { action: "allow", spawned: false };
   }
