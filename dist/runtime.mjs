@@ -16,7 +16,12 @@ var DEFAULT_CONFIG = {
   platform: "auto",
   category_whitelist: ["debug", "refactor", "test", "deploy", "data", "web", "cli", "meta"],
   meta_skill_name: "evolve-skill-writer",
-  log_level: "info"
+  log_level: "info",
+  review_max_turns: 8,
+  max_skill_file_size: 262144,
+  max_skill_total_size: 1048576,
+  max_files_per_skill: 50,
+  binary_extensions: [".exe", ".dll", ".so", ".dylib", ".bin", ".bat", ".cmd", ".ps1", ".com"]
 };
 function loadConfig(pluginRoot) {
   for (const name of ["config.json", "config.default.json"]) {
@@ -35,6 +40,10 @@ function resolveConfig(pluginRoot) {
   if (process.env.SELF_EVOLUTION_REVIEW_MODEL) config.review_model = process.env.SELF_EVOLUTION_REVIEW_MODEL;
   if (process.env.SELF_EVOLUTION_PLATFORM) config.platform = process.env.SELF_EVOLUTION_PLATFORM;
   if (process.env.SELF_EVOLUTION_LOG_LEVEL) config.log_level = process.env.SELF_EVOLUTION_LOG_LEVEL;
+  if (process.env.SELF_EVOLUTION_REVIEW_MAX_TURNS) config.review_max_turns = parseInt(process.env.SELF_EVOLUTION_REVIEW_MAX_TURNS, 10);
+  if (process.env.SELF_EVOLUTION_MAX_SKILL_FILE_SIZE) config.max_skill_file_size = parseInt(process.env.SELF_EVOLUTION_MAX_SKILL_FILE_SIZE, 10);
+  if (process.env.SELF_EVOLUTION_MAX_SKILL_TOTAL_SIZE) config.max_skill_total_size = parseInt(process.env.SELF_EVOLUTION_MAX_SKILL_TOTAL_SIZE, 10);
+  if (process.env.SELF_EVOLUTION_MAX_FILES_PER_SKILL) config.max_files_per_skill = parseInt(process.env.SELF_EVOLUTION_MAX_FILES_PER_SKILL, 10);
   return config;
 }
 function resolveLogLevel(config) {
@@ -125,6 +134,15 @@ function incrementCount(statePath, sessionId, threshold = 10) {
   }
   saveState(statePath, state);
   return state.sessions[sessionId].count;
+}
+function resetCount(statePath, sessionId) {
+  const state = loadState(statePath);
+  if (!state.sessions[sessionId]) {
+    state.sessions[sessionId] = { count: 0, pending_review: false };
+  }
+  state.sessions[sessionId].count = 0;
+  state.sessions[sessionId].pending_review = false;
+  saveState(statePath, state);
 }
 function consumePending(statePath, sessionId) {
   const state = loadState(statePath);
@@ -238,6 +256,11 @@ function handleSessionStart(sessionsDir, sessionId, logger) {
 // src/commands/post-tool-use.ts
 function handlePostToolUse(statePath, sessionsDir, input, logger, threshold = 10) {
   if (!input.session_id) return 0;
+  if (input.tool_name === "Skill") {
+    resetCount(statePath, input.session_id);
+    return 0;
+  }
+  if (process.env.SELF_EVOLUTION_REVIEW_MODE === "1") return 0;
   const stateBefore = loadState(statePath);
   const prevPending = stateBefore.sessions[input.session_id]?.pending_review ?? false;
   const newCount = incrementCount(statePath, input.session_id, threshold);
@@ -296,7 +319,7 @@ var ClaudeCodeSpawner = class {
       "--allowedTools",
       "Read,Write,Bash,Glob,Grep,Skill",
       "--max-turns",
-      "20",
+      String(opts.reviewMaxTurns ?? 8),
       "--output-format",
       "json"
     ];
@@ -311,7 +334,8 @@ var ClaudeCodeSpawner = class {
         CLAUDE_PLUGIN_ROOT: opts.pluginRoot,
         CLAUDE_PLUGIN_DATA: opts.pluginData,
         SELF_EVOLUTION_SESSION_ID: opts.sessionId,
-        SELF_EVOLUTION_TRANSCRIPT_PATH: opts.transcriptPath
+        SELF_EVOLUTION_TRANSCRIPT_PATH: opts.transcriptPath,
+        SELF_EVOLUTION_REVIEW_MODE: "1"
       }
     });
     child.unref();
@@ -360,6 +384,9 @@ function handleStopGate(statePath, sessionsDir, sessionId, input, options, logge
   if (input.stop_hook_active) {
     return { action: "allow", spawned: false };
   }
+  if (process.env.SELF_EVOLUTION_REVIEW_MODE === "1") {
+    return { action: "allow", spawned: false };
+  }
   if (!input.session_id || !input.transcript_path) {
     return { action: "allow", spawned: false };
   }
@@ -376,7 +403,8 @@ function handleStopGate(statePath, sessionsDir, sessionId, input, options, logge
       transcriptPath: input.transcript_path,
       pluginRoot: options.pluginRoot,
       pluginData: options.pluginData,
-      reviewModel: options.reviewModel
+      reviewModel: options.reviewModel,
+      reviewMaxTurns: options.reviewMaxTurns
     });
     jobPromise.then((job) => {
       logger.info("review_launched", { session_id: input.session_id, pid: job.pid });
@@ -517,37 +545,85 @@ function parseTranscript(transcriptPath) {
     return summary;
   }
   if (!raw) return summary;
-  let messages;
+  let entries;
   try {
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      messages = parsed;
+      entries = parsed;
     } else {
-      messages = [parsed];
+      entries = [parsed];
     }
   } catch {
     try {
-      messages = raw.split("\n").filter((line) => line.trim()).map((line) => JSON.parse(line));
+      entries = raw.split("\n").filter((line) => line.trim()).map((line) => JSON.parse(line));
     } catch {
       return summary;
     }
   }
-  for (const msg of messages) {
-    const m = msg;
-    summary.totalTurns++;
-    if (m.role === "user" && typeof m.content === "string") {
-      summary.userMessages.push(m.content);
-    } else if (m.role === "assistant" && typeof m.content === "string") {
-      summary.assistantMessages.push(m.content);
-    } else if (m.role === "tool_use" || m.role === "tool") {
-      const toolCall = {
-        tool: String(m.name ?? m.tool_name ?? "unknown"),
-        input: m.input ?? m.tool_input ?? {}
-      };
-      if (m.content || m.output) {
-        toolCall.output = String(m.content ?? m.output ?? "");
+  for (const entry of entries) {
+    const e = entry;
+    const type = e.type;
+    const message = e.message;
+    if (type === "user" && message) {
+      if (e.isMeta) continue;
+      const content = message.content;
+      if (typeof content === "string") {
+        summary.userMessages.push(content);
+        summary.totalTurns++;
+      } else if (Array.isArray(content)) {
+        let added = false;
+        for (const block of content) {
+          if (typeof block === "object" && block !== null) {
+            const b = block;
+            if (b.type === "text" && typeof b.text === "string") {
+              summary.userMessages.push(b.text);
+              added = true;
+            }
+          }
+        }
+        if (added) summary.totalTurns++;
       }
-      summary.toolCalls.push(toolCall);
+    } else if (type === "assistant" && message) {
+      const content = message.content;
+      if (typeof content === "string") {
+        summary.assistantMessages.push(content);
+        summary.totalTurns++;
+      } else if (Array.isArray(content)) {
+        let added = false;
+        for (const block of content) {
+          if (typeof block === "object" && block !== null) {
+            const b = block;
+            if (b.type === "text" && typeof b.text === "string") {
+              summary.assistantMessages.push(b.text);
+              added = true;
+            } else if (b.type === "tool_use") {
+              const toolCall = {
+                tool: String(b.name ?? "unknown"),
+                input: b.input ?? {}
+              };
+              summary.toolCalls.push(toolCall);
+              added = true;
+            }
+          }
+        }
+        if (added) summary.totalTurns++;
+      }
+    } else if (!type && e.role) {
+      summary.totalTurns++;
+      if (e.role === "user" && typeof e.content === "string") {
+        summary.userMessages.push(e.content);
+      } else if (e.role === "assistant" && typeof e.content === "string") {
+        summary.assistantMessages.push(e.content);
+      } else if (e.role === "tool_use" || e.role === "tool") {
+        const toolCall = {
+          tool: String(e.name ?? e.tool_name ?? "unknown"),
+          input: e.input ?? e.tool_input ?? {}
+        };
+        if (e.content || e.output) {
+          toolCall.output = String(e.content ?? e.output ?? "");
+        }
+        summary.toolCalls.push(toolCall);
+      }
     }
   }
   return summary;
@@ -676,6 +752,7 @@ function runCommand(command, args, stdinData) {
           pluginRoot,
           pluginData,
           reviewModel: config.review_model,
+          reviewMaxTurns: config.review_max_turns,
           platform: config.platform
         }, logger);
         return 0;
