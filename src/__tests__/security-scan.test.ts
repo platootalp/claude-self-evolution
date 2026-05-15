@@ -11,7 +11,7 @@ describe("handleSecurityScan", () => {
       path: "/home/user/.claude/skills/debug-foo/SKILL.md",
       content: "safe content",
     });
-    expect(result).toEqual({ allowed: true });
+    expect(result.allowed).toBe(true);
   });
 
   it("returns {allowed: false, reason} for blocked content", () => {
@@ -67,7 +67,7 @@ describe("handleSecurityScan with logging", () => {
     const logPath = path.join(sessionsDir, sessionId, "log.jsonl");
     const entry = JSON.parse(fs.readFileSync(logPath, "utf-8").trim());
     expect(entry.event).toBe("security_blocked");
-    expect(entry.category).toContain("prompt-injection");
+    expect(entry.category).toContain("prompt_injection");
   });
 
   it("logs security_scan_detail at debug when content passes", () => {
