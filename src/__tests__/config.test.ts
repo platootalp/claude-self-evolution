@@ -32,7 +32,7 @@ describe("config", () => {
     const config = loadConfig(tmpDir);
     expect(config.log_level).toBe("debug");
     expect(config.nudge_interval).toBe(5);
-    expect(config.max_skill_size).toBe(15360);
+    expect(config.max_skill_file_size).toBe(262144);
   });
 
   it("resolveConfig applies env var overrides", () => {

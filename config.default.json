@@ -1,6 +1,5 @@
 {
   "nudge_interval": 10,
-  "max_skill_size": 15360,
   "review_model": "sonnet",
   "platform": "auto",
   "category_whitelist": ["debug", "refactor", "test", "deploy", "data", "web", "cli", "meta"],

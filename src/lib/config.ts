@@ -3,7 +3,6 @@ import path from "node:path";
 
 export interface Config {
   nudge_interval: number;
-  max_skill_size: number;
   review_model: string;
   platform: string;
   category_whitelist: string[];
@@ -18,7 +17,6 @@ export interface Config {
 
 const DEFAULT_CONFIG: Config = {
   nudge_interval: 10,
-  max_skill_size: 15360,
   review_model: "sonnet",
   platform: "auto",
   category_whitelist: ["debug", "refactor", "test", "deploy", "data", "web", "cli", "meta"],
@@ -45,7 +43,6 @@ export function resolveConfig(pluginRoot: string): Config {
   const config = loadConfig(pluginRoot);
 
   if (process.env.SELF_EVOLUTION_NUDGE_INTERVAL) config.nudge_interval = parseInt(process.env.SELF_EVOLUTION_NUDGE_INTERVAL, 10);
-  if (process.env.SELF_EVOLUTION_MAX_SKILL_SIZE) config.max_skill_size = parseInt(process.env.SELF_EVOLUTION_MAX_SKILL_SIZE, 10);
   if (process.env.SELF_EVOLUTION_REVIEW_MODEL) config.review_model = process.env.SELF_EVOLUTION_REVIEW_MODEL;
   if (process.env.SELF_EVOLUTION_PLATFORM) config.platform = process.env.SELF_EVOLUTION_PLATFORM;
   if (process.env.SELF_EVOLUTION_LOG_LEVEL) config.log_level = process.env.SELF_EVOLUTION_LOG_LEVEL;
