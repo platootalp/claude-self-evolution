@@ -159,13 +159,13 @@ The current 3 regex patterns become structured objects:
 
 | Check | Default | Config key | Env override |
 |-------|---------|------------|-------------|
-| Binary file rejection | `.exe`, `.dll`, `.so`, `.dylib`, `.bin`, `.sh`, `.bat`, `.cmd`, `.ps1`, `.com` | `binary_extensions` | — |
+| Binary file rejection | `.exe`, `.dll`, `.so`, `.dylib`, `.bin`, `.bat`, `.cmd`, `.ps1`, `.com` | `binary_extensions` | — |
 | Symlink target must be inside skill dir | — | — | — |
 | Max files per skill | 50 | `max_files_per_skill` | `SELF_EVOLUTION_MAX_FILES_PER_SKILL` |
 | Max total size per skill | 1 MB (1048576) | `max_skill_total_size` | `SELF_EVOLUTION_MAX_SKILL_TOTAL_SIZE` |
 | Max single file size | 256 KB (262144) | `max_skill_file_size` | `SELF_EVOLUTION_MAX_SKILL_FILE_SIZE` |
 
-**Note:** The existing `max_skill_size: 15360` (15 KB) applied only to single SKILL.md content. The new `max_skill_file_size: 262144` (256 KB) replaces it with a more generous but still safe limit. The old `max_skill_size` config key is deprecated in favor of `max_skill_file_size`.
+**Note:** The existing `max_skill_size: 15360` (15 KB) applied only to single SKILL.md content. It is **removed** and replaced by `max_skill_file_size: 262144` (256 KB) per file and `max_skill_total_size: 1048576` (1 MB) per skill. The `max_skill_size` config key and `SELF_EVOLUTION_MAX_SKILL_SIZE` env var are removed from `config.ts` in this iteration.
 
 ### Implementation
 
