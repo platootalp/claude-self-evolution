@@ -85,4 +85,29 @@ describe("handlePostToolUse with logging", () => {
       }
     }
   });
+
+  it("resets counter to 0 when tool_name is Skill", () => {
+    const logger = createLogger(sessionsDir, sessionId, "info");
+    handlePostToolUse(statePath, sessionsDir, { session_id: "s1", tool_name: "Bash", tool_input: {} }, logger, 10);
+    handlePostToolUse(statePath, sessionsDir, { session_id: "s1", tool_name: "Bash", tool_input: {} }, logger, 10);
+    const state1 = loadState(statePath);
+    expect(state1.sessions["s1"].count).toBe(2);
+    handlePostToolUse(statePath, sessionsDir, { session_id: "s1", tool_name: "Skill", tool_input: {} }, logger, 10);
+    const state2 = loadState(statePath);
+    expect(state2.sessions["s1"].count).toBe(0);
+  });
+
+  it("Skill tool use returns 0 and does not trigger nudge", () => {
+    const logger = createLogger(sessionsDir, sessionId, "info");
+    for (let i = 0; i < 9; i++) {
+      handlePostToolUse(statePath, sessionsDir, { session_id: "s1", tool_name: "Bash", tool_input: {} }, logger, 10);
+    }
+    const state1 = loadState(statePath);
+    expect(state1.sessions["s1"].count).toBe(9);
+    expect(state1.sessions["s1"].pending_review).toBe(false);
+    handlePostToolUse(statePath, sessionsDir, { session_id: "s1", tool_name: "Skill", tool_input: {} }, logger, 10);
+    const state2 = loadState(statePath);
+    expect(state2.sessions["s1"].count).toBe(0);
+    expect(state2.sessions["s1"].pending_review).toBe(false);
+  });
 });

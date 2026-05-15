@@ -1,4 +1,4 @@
-import { incrementCount, loadState } from "../lib/state.js";
+import { incrementCount, loadState, resetCount } from "../lib/state.js";
 import type { PostToolUseInput } from "../types.js";
 import type { Logger } from "../lib/logger.js";
 
@@ -10,6 +10,10 @@ export function handlePostToolUse(
   threshold: number = 10
 ): number {
   if (!input.session_id) return 0;
+  if (input.tool_name === "Skill") {
+    resetCount(statePath, input.session_id);
+    return 0;
+  }
   if (process.env.SELF_EVOLUTION_REVIEW_MODE === "1") return 0;
   const stateBefore = loadState(statePath);
   const prevPending = stateBefore.sessions[input.session_id]?.pending_review ?? false;
