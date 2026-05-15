@@ -1,7 +1,10 @@
+// self-evolution runtime — auto-generated bundle
+
+
 // src/runtime.ts
-import fs8 from "node:fs";
-import path7 from "node:path";
-import os3 from "node:os";
+import fs9 from "node:fs";
+import path8 from "node:path";
+import os4 from "node:os";
 
 // src/lib/config.ts
 import fs from "node:fs";
@@ -226,13 +229,9 @@ function updateStats(statsPath, decision, detail, sessionId, skillName) {
 }
 
 // src/commands/session-start.ts
-function handleSessionStart(sessionsDir, sessionId, logger, env) {
+function handleSessionStart(sessionsDir, sessionId, logger) {
   initSessionState(sessionsDir, sessionId);
-  logger.info("hook_triggered", {
-    event: "session_start",
-    CLAUDE_PLUGIN_ROOT: env.CLAUDE_PLUGIN_ROOT ?? "EMPTY",
-    CLAUDE_PLUGIN_DATA: env.CLAUDE_PLUGIN_DATA ?? "EMPTY"
-  });
+  logger.info("hook_triggered", { hook: "session_start" });
   logger.debug("counter_state", { count: 0, pending_review: false });
 }
 
@@ -246,7 +245,7 @@ function handlePostToolUse(statePath, sessionsDir, input, logger, threshold = 10
   const nowPending = stateAfter.sessions[input.session_id]?.pending_review ?? false;
   logger.debug("counter_state", { count: newCount, pending_review: nowPending, session_id: input.session_id });
   if (!prevPending && nowPending) {
-    logger.info("hook_triggered", { event: "post_tool_use", pending: true, session_id: input.session_id });
+    logger.info("hook_triggered", { hook: "post_tool_use", pending: true, session_id: input.session_id });
   }
   return newCount;
 }
@@ -378,11 +377,13 @@ function handleStopGate(statePath, sessionsDir, sessionId, input, options, logge
       pluginData: options.pluginData,
       reviewModel: options.reviewModel
     });
-    logger.info("review_launched", { session_id: input.session_id });
     jobPromise.then((job) => {
+      logger.info("review_launched", { session_id: input.session_id, pid: job.pid });
+      logger.debug("spawn_launched", { command: "claude -p", pid: job.pid });
       addJob(statePath, job);
+    }).then(() => {
       const duration = Date.now() - startTime;
-      logger.debug("spawn_completed", { exit_code: 0, duration_ms: duration, job_id: job.id, pid: job.pid });
+      logger.debug("spawn_completed", { exit_code: 0, duration_ms: duration });
     }).catch((err) => {
       const duration = Date.now() - startTime;
       const msg = err instanceof Error ? err.message : String(err);
@@ -571,8 +572,11 @@ function handleReviewContext(options, logger) {
 }
 
 // src/commands/log-decision.ts
-function handleLogDecision(sessionsDir, statsPath, sessionId, decision, detail, logger) {
-  logger.logDecision(decision, detail, 0);
+import fs7 from "node:fs";
+import path7 from "node:path";
+import os3 from "node:os";
+function handleLogDecision(sessionsDir, statsPath, sessionId, decision, detail, durationMs, logger) {
+  logger.logDecision(decision, detail, durationMs);
   if (decision === "CREATED" || decision === "UPDATED" || decision === "SKIPPED") {
     const skillName = decision !== "SKIPPED" ? extractSkillName(detail) : void 0;
     updateStats(statsPath, decision, detail, sessionId, skillName);
@@ -582,7 +586,15 @@ function handleLogDecision(sessionsDir, statsPath, sessionId, decision, detail, 
       ...skillName ? { skill_name: skillName } : {}
     });
     if (skillName) {
-      logger.info("skill_written", { skill_name: skillName });
+      const skillPath = path7.join(os3.homedir(), ".claude", "skills", skillName, "SKILL.md");
+      try {
+        const stat = fs7.statSync(skillPath);
+        logger.info("skill_written", { path: skillPath, size_bytes: stat.size });
+        const content = fs7.readFileSync(skillPath, "utf-8");
+        logger.debug("skill_content_preview", { preview: content.slice(0, 200) });
+      } catch {
+        logger.info("skill_written", { skill_name: skillName });
+      }
     }
   }
 }
@@ -592,11 +604,11 @@ function extractSkillName(detail) {
 }
 
 // src/commands/status.ts
-import fs7 from "node:fs";
+import fs8 from "node:fs";
 function handleStatus(statePath, statsPath) {
   const state = loadState(statePath);
   let stats = null;
-  if (fs7.existsSync(statsPath)) {
+  if (fs8.existsSync(statsPath)) {
     stats = loadStats(statsPath);
   }
   return {
@@ -613,17 +625,17 @@ function resolvePaths() {
   const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT ?? "";
   const pluginData = process.env.CLAUDE_PLUGIN_DATA ?? (() => {
     if (pluginRoot) {
-      const name = path7.basename(pluginRoot);
-      const marketplace = path7.basename(path7.dirname(pluginRoot));
-      return path7.join(os3.homedir(), ".claude", "plugins", "data", `${name}-${marketplace}`);
+      const name = path8.basename(pluginRoot);
+      const marketplace = path8.basename(path8.dirname(pluginRoot));
+      return path8.join(os4.homedir(), ".claude", "plugins", "data", `${name}-${marketplace}`);
     }
-    return path7.join(os3.homedir(), ".claude", "plugins", "data", "self-evolution-self-evolution-marketplace");
+    return path8.join(os4.homedir(), ".claude", "plugins", "data", "self-evolution-self-evolution-marketplace");
   })();
   const config = resolveConfig(pluginRoot);
   return {
-    statePath: path7.join(pluginData, "state.json"),
-    sessionsDir: path7.join(pluginData, "sessions"),
-    statsPath: path7.join(pluginData, "stats.json"),
+    statePath: path8.join(pluginData, "state.json"),
+    sessionsDir: path8.join(pluginData, "sessions"),
+    statsPath: path8.join(pluginData, "stats.json"),
     pluginRoot,
     pluginData,
     config
@@ -637,10 +649,7 @@ function runCommand(command, args, stdinData) {
       case "session-start": {
         const sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`;
         const logger = createLogger(sessionsDir, sessionId, logLevel);
-        handleSessionStart(sessionsDir, sessionId, logger, {
-          CLAUDE_PLUGIN_ROOT: process.env.CLAUDE_PLUGIN_ROOT ?? "",
-          CLAUDE_PLUGIN_DATA: process.env.CLAUDE_PLUGIN_DATA ?? ""
-        });
+        handleSessionStart(sessionsDir, sessionId, logger);
         return 0;
       }
       case "post-tool-use": {
@@ -688,9 +697,10 @@ function runCommand(command, args, stdinData) {
       case "log-decision": {
         const decision = args[0] || "unknown";
         const detail = args[1] || "";
-        const sessionId = args[2] || (process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown");
+        const durationMs = parseInt(args[2] || "0", 10);
+        const sessionId = args[3] || (process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown");
         const logger = createLogger(sessionsDir, sessionId, logLevel);
-        handleLogDecision(sessionsDir, statsPath, sessionId, decision, detail, logger);
+        handleLogDecision(sessionsDir, statsPath, sessionId, decision, detail, durationMs, logger);
         return 0;
       }
       case "status": {
@@ -715,7 +725,7 @@ if (process.argv[1]?.endsWith("runtime.ts") || process.argv[1]?.endsWith("runtim
   let stdinData = "";
   if (["post-tool-use", "stop-gate"].includes(command)) {
     try {
-      stdinData = fs8.readFileSync("/dev/stdin", "utf-8").trim();
+      stdinData = fs9.readFileSync("/dev/stdin", "utf-8").trim();
     } catch {
     }
   }

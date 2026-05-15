@@ -30,6 +30,7 @@ export function createLogger(sessionsDir: string, sessionId: string, logLevel: s
   function writeEntry(eventLevel: string, event: string, kv: Record<string, unknown>): void {
     if (!shouldLog(logLevel, eventLevel)) return;
     try {
+      // kv fields first so that fixed fields (ts, level, event, session_id, pid) take precedence
       const entry = {
         ...kv,
         ts: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
@@ -84,7 +85,7 @@ export function logDecision(
   const entry = {
     ts: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
     level: "info",
-    event: "reviewer_decision",
+    event: "review_decision",
     decision,
     detail,
     duration_ms: durationMs,

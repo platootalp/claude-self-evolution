@@ -43,6 +43,7 @@ describe("handlePostToolUse with logging", () => {
     expect(hookLine).toBeDefined();
     const entry = JSON.parse(hookLine!);
     expect(entry.event).toBe("hook_triggered");
+    expect(entry.hook).toBe("post_tool_use");
     expect(entry.pending).toBe(true);
   });
 

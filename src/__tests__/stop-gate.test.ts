@@ -47,7 +47,7 @@ describe("handleStopGate", () => {
     expect(entry.reason).toBe("no_pending_review");
   });
 
-  it("consumes pending and logs review_launched", () => {
+  it("consumes pending and logs review_launched with pid", async () => {
     incrementCount(statePath, "s1", 1);
     const logger = createLogger(sessionsDir, sessionId, "info");
     const result = handleStopGate(statePath, sessionsDir, sessionId, {
@@ -57,10 +57,30 @@ describe("handleStopGate", () => {
     }, { pluginRoot: "/tmp", pluginData: tmpDir }, logger);
     expect(result.action).toBe("allow");
     expect(result.spawned).toBe(true);
+    // Wait for async spawn to resolve and log
+    await new Promise((r) => setTimeout(r, 100));
     const logPath = path.join(sessionsDir, sessionId, "log.jsonl");
-    const entry = JSON.parse(fs.readFileSync(logPath, "utf-8").trim());
+    const content = fs.readFileSync(logPath, "utf-8").trim();
+    const entry = JSON.parse(content.split("\n")[0]);
     expect(entry.event).toBe("review_launched");
     expect(entry.session_id).toBe(sessionId);
+    expect(entry.pid).toBeTypeOf("number");
+  });
+
+  it("logs spawn_launched debug event when log_level=debug", async () => {
+    incrementCount(statePath, "s1", 1);
+    const logger = createLogger(sessionsDir, sessionId, "debug");
+    handleStopGate(statePath, sessionsDir, sessionId, {
+      session_id: "s1",
+      transcript_path: "/tmp/transcript.jsonl",
+      stop_hook_active: false,
+    }, { pluginRoot: "/tmp", pluginData: tmpDir }, logger);
+    await new Promise((r) => setTimeout(r, 100));
+    const logPath = path.join(sessionsDir, sessionId, "log.jsonl");
+    const lines = fs.readFileSync(logPath, "utf-8").trim().split("\n");
+    const spawnLaunched = lines.map(l => JSON.parse(l)).find((e: any) => e.event === "spawn_launched");
+    expect(spawnLaunched).toBeDefined();
+    expect(spawnLaunched.pid).toBeTypeOf("number");
   });
 
   it("returns allow without spawn when session_id is empty", () => {

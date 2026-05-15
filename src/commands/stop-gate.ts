@@ -45,12 +45,14 @@ export function handleStopGate(
       pluginData: options.pluginData,
       reviewModel: options.reviewModel,
     });
-    logger.info("review_launched", { session_id: input.session_id });
 
     jobPromise.then((job: Job) => {
+      logger.info("review_launched", { session_id: input.session_id, pid: job.pid });
+      logger.debug("spawn_launched", { command: "claude -p", pid: job.pid });
       addJob(statePath, job);
+    }).then(() => {
       const duration = Date.now() - startTime;
-      logger.debug("spawn_completed", { exit_code: 0, duration_ms: duration, job_id: job.id, pid: job.pid });
+      logger.debug("spawn_completed", { exit_code: 0, duration_ms: duration });
     }).catch((err: unknown) => {
       const duration = Date.now() - startTime;
       const msg = err instanceof Error ? err.message : String(err);

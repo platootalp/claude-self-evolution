@@ -57,7 +57,7 @@ describe("runtime command router", () => {
   it("routes log-decision correctly", () => {
     process.env.CLAUDE_PLUGIN_ROOT = tmpDir;
     process.env.CLAUDE_PLUGIN_DATA = tmpDir;
-    const result = runCommand("log-decision", ["CREATED", "test reason"], "");
+    const result = runCommand("log-decision", ["CREATED", "test reason", "0"], "");
     expect(result).toBe(0);
   });
 

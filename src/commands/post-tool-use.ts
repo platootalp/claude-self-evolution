@@ -17,7 +17,7 @@ export function handlePostToolUse(
   const nowPending = stateAfter.sessions[input.session_id]?.pending_review ?? false;
   logger.debug("counter_state", { count: newCount, pending_review: nowPending, session_id: input.session_id });
   if (!prevPending && nowPending) {
-    logger.info("hook_triggered", { event: "post_tool_use", pending: true, session_id: input.session_id });
+    logger.info("hook_triggered", { hook: "post_tool_use", pending: true, session_id: input.session_id });
   }
   return newCount;
 }

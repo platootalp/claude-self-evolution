@@ -20,23 +20,29 @@ afterEach(() => {
 });
 
 describe("handleSessionStart", () => {
-  it("creates session directory and writes info log", () => {
+  it("creates session directory and writes info log with hook field", () => {
     const logger = createLogger(sessionsDir, sessionId, "info");
-    handleSessionStart(sessionsDir, sessionId, logger, {
-      CLAUDE_PLUGIN_ROOT: "/test/plugin",
-      CLAUDE_PLUGIN_DATA: "/test/data",
-    });
+    handleSessionStart(sessionsDir, sessionId, logger);
     const statePath = path.join(sessionsDir, sessionId, "state.json");
     expect(fs.existsSync(statePath)).toBe(true);
     const logPath = path.join(sessionsDir, sessionId, "log.jsonl");
     const entry = JSON.parse(fs.readFileSync(logPath, "utf-8").trim());
     expect(entry.event).toBe("hook_triggered");
-    expect(entry.CLAUDE_PLUGIN_ROOT).toBe("/test/plugin");
+    expect(entry.hook).toBe("session_start");
+  });
+
+  it("does not leak env vars into log entries", () => {
+    const logger = createLogger(sessionsDir, sessionId, "info");
+    handleSessionStart(sessionsDir, sessionId, logger);
+    const logPath = path.join(sessionsDir, sessionId, "log.jsonl");
+    const entry = JSON.parse(fs.readFileSync(logPath, "utf-8").trim());
+    expect(entry.CLAUDE_PLUGIN_ROOT).toBeUndefined();
+    expect(entry.CLAUDE_PLUGIN_DATA).toBeUndefined();
   });
 
   it("writes counter_state debug log when log_level=debug", () => {
     const logger = createLogger(sessionsDir, sessionId, "debug");
-    handleSessionStart(sessionsDir, sessionId, logger, {});
+    handleSessionStart(sessionsDir, sessionId, logger);
     const logPath = path.join(sessionsDir, sessionId, "log.jsonl");
     const lines = fs.readFileSync(logPath, "utf-8").trim().split("\n");
     expect(lines).toHaveLength(2);
@@ -47,7 +53,7 @@ describe("handleSessionStart", () => {
 
   it("does not write debug log when log_level=info", () => {
     const logger = createLogger(sessionsDir, sessionId, "info");
-    handleSessionStart(sessionsDir, sessionId, logger, {});
+    handleSessionStart(sessionsDir, sessionId, logger);
     const logPath = path.join(sessionsDir, sessionId, "log.jsonl");
     const lines = fs.readFileSync(logPath, "utf-8").trim().split("\n");
     expect(lines).toHaveLength(1);

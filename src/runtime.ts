@@ -43,10 +43,7 @@ export function runCommand(command: string, args: string[], stdinData: string): 
       case "session-start": {
         const sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`;
         const logger = createLogger(sessionsDir, sessionId, logLevel);
-        handleSessionStart(sessionsDir, sessionId, logger, {
-          CLAUDE_PLUGIN_ROOT: process.env.CLAUDE_PLUGIN_ROOT ?? "",
-          CLAUDE_PLUGIN_DATA: process.env.CLAUDE_PLUGIN_DATA ?? "",
-        });
+        handleSessionStart(sessionsDir, sessionId, logger);
         return 0;
       }
 
@@ -99,9 +96,10 @@ export function runCommand(command: string, args: string[], stdinData: string): 
       case "log-decision": {
         const decision = args[0] || "unknown";
         const detail = args[1] || "";
-        const sessionId = args[2] || (process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown");
+        const durationMs = parseInt(args[2] || "0", 10);
+        const sessionId = args[3] || (process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown");
         const logger = createLogger(sessionsDir, sessionId, logLevel);
-        handleLogDecision(sessionsDir, statsPath, sessionId, decision, detail, logger);
+        handleLogDecision(sessionsDir, statsPath, sessionId, decision, detail, durationMs, logger);
         return 0;
       }
 
