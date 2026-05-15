@@ -73,6 +73,7 @@ export class ClaudeCodeSpawner implements AgentSpawner {
         CLAUDE_PLUGIN_DATA: opts.pluginData,
         SELF_EVOLUTION_SESSION_ID: opts.sessionId,
         SELF_EVOLUTION_TRANSCRIPT_PATH: opts.transcriptPath,
+        SELF_EVOLUTION_REVIEW_MODE: "1",
       },
     });
 

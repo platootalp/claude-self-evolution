@@ -129,4 +129,27 @@ describe("spawner", () => {
     const spawner = getSpawner();
     expect(spawner).toBeInstanceOf(CodexSpawner);
   });
+
+  it("ClaudeCodeSpawner passes SELF_EVOLUTION_REVIEW_MODE in spawn env", async () => {
+    const { spawn } = await import("node:child_process");
+    (spawn as ReturnType<typeof import("node:child_process").spawn>).mockImplementation(() => {
+      const fakeChild = {
+        pid: 99997,
+        unref: vi.fn(),
+      } as unknown as ReturnType<typeof spawn>;
+      return fakeChild as ReturnType<typeof spawn>;
+    });
+
+    const spawner = new ClaudeCodeSpawner();
+    await spawner.spawnReviewProcess({
+      sessionId: "s1",
+      transcriptPath: "/tmp/transcript.jsonl",
+      pluginRoot: "/tmp/plugin",
+      pluginData: "/tmp/data",
+    });
+
+    const spawnArgs = (spawn as any).mock.calls[0];
+    const env = spawnArgs[2].env;
+    expect(env.SELF_EVOLUTION_REVIEW_MODE).toBe("1");
+  });
 });
