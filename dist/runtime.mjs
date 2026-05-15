@@ -681,37 +681,85 @@ function parseTranscript(transcriptPath) {
     return summary;
   }
   if (!raw) return summary;
-  let messages;
+  let entries;
   try {
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      messages = parsed;
+      entries = parsed;
     } else {
-      messages = [parsed];
+      entries = [parsed];
     }
   } catch {
     try {
-      messages = raw.split("\n").filter((line) => line.trim()).map((line) => JSON.parse(line));
+      entries = raw.split("\n").filter((line) => line.trim()).map((line) => JSON.parse(line));
     } catch {
       return summary;
     }
   }
-  for (const msg of messages) {
-    const m = msg;
-    summary.totalTurns++;
-    if (m.role === "user" && typeof m.content === "string") {
-      summary.userMessages.push(m.content);
-    } else if (m.role === "assistant" && typeof m.content === "string") {
-      summary.assistantMessages.push(m.content);
-    } else if (m.role === "tool_use" || m.role === "tool") {
-      const toolCall = {
-        tool: String(m.name ?? m.tool_name ?? "unknown"),
-        input: m.input ?? m.tool_input ?? {}
-      };
-      if (m.content || m.output) {
-        toolCall.output = String(m.content ?? m.output ?? "");
+  for (const entry of entries) {
+    const e = entry;
+    const type = e.type;
+    const message = e.message;
+    if (type === "user" && message) {
+      if (e.isMeta) continue;
+      const content = message.content;
+      if (typeof content === "string") {
+        summary.userMessages.push(content);
+        summary.totalTurns++;
+      } else if (Array.isArray(content)) {
+        let added = false;
+        for (const block of content) {
+          if (typeof block === "object" && block !== null) {
+            const b = block;
+            if (b.type === "text" && typeof b.text === "string") {
+              summary.userMessages.push(b.text);
+              added = true;
+            }
+          }
+        }
+        if (added) summary.totalTurns++;
       }
-      summary.toolCalls.push(toolCall);
+    } else if (type === "assistant" && message) {
+      const content = message.content;
+      if (typeof content === "string") {
+        summary.assistantMessages.push(content);
+        summary.totalTurns++;
+      } else if (Array.isArray(content)) {
+        let added = false;
+        for (const block of content) {
+          if (typeof block === "object" && block !== null) {
+            const b = block;
+            if (b.type === "text" && typeof b.text === "string") {
+              summary.assistantMessages.push(b.text);
+              added = true;
+            } else if (b.type === "tool_use") {
+              const toolCall = {
+                tool: String(b.name ?? "unknown"),
+                input: b.input ?? {}
+              };
+              summary.toolCalls.push(toolCall);
+              added = true;
+            }
+          }
+        }
+        if (added) summary.totalTurns++;
+      }
+    } else if (!type && e.role) {
+      summary.totalTurns++;
+      if (e.role === "user" && typeof e.content === "string") {
+        summary.userMessages.push(e.content);
+      } else if (e.role === "assistant" && typeof e.content === "string") {
+        summary.assistantMessages.push(e.content);
+      } else if (e.role === "tool_use" || e.role === "tool") {
+        const toolCall = {
+          tool: String(e.name ?? e.tool_name ?? "unknown"),
+          input: e.input ?? e.tool_input ?? {}
+        };
+        if (e.content || e.output) {
+          toolCall.output = String(e.content ?? e.output ?? "");
+        }
+        summary.toolCalls.push(toolCall);
+      }
     }
   }
   return summary;
