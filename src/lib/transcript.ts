@@ -9,10 +9,16 @@ export function parseTranscript(transcriptPath: string): TranscriptSummary {
     totalTurns: 0,
   };
 
+  if (!transcriptPath) {
+    process.stderr.write("[self-evolution] parseTranscript: transcript path is empty\n");
+    return summary;
+  }
+
   let raw: string;
   try {
     raw = fs.readFileSync(transcriptPath, "utf-8").trim();
-  } catch {
+  } catch (err) {
+    process.stderr.write(`[self-evolution] parseTranscript: failed to read "${transcriptPath}": ${err}\n`);
     return summary;
   }
 

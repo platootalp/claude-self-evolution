@@ -5,7 +5,7 @@ Plugin Root: ${CLAUDE_PLUGIN_ROOT}
 Plugin Data: ${CLAUDE_PLUGIN_DATA}
 
 Your task:
-1. Run: node "${CLAUDE_PLUGIN_ROOT}/dist/runtime.mjs" review-context
+1. Run: node "${CLAUDE_PLUGIN_ROOT}/dist/runtime.mjs" review-context "${SELF_EVOLUTION_TRANSCRIPT_PATH}"
    Returns transcript summary and existing skills.
 
 2. Decide CREATE / UPDATE / SKIP. SKIP unless: reusable (>=3 steps), generalizable, no one-off data.

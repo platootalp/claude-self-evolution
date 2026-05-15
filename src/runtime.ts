@@ -88,6 +88,9 @@ export function runCommand(command: string, args: string[], stdinData: string): 
         const transcriptPath = args[0] || process.env.SELF_EVOLUTION_TRANSCRIPT_PATH || "";
         const sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown";
         const logger = createLogger(sessionsDir, sessionId, logLevel);
+        if (!transcriptPath) {
+          logger.info("review_context_missing_transcript_path", { has_arg: !!args[0], has_env: !!process.env.SELF_EVOLUTION_TRANSCRIPT_PATH });
+        }
         const result = handleReviewContext({ transcriptPath, sessionId }, logger);
         process.stdout.write(JSON.stringify(result, null, 2) + "\n");
         return 0;

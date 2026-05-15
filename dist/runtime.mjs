@@ -271,7 +271,7 @@ Plugin Root: \${CLAUDE_PLUGIN_ROOT}
 Plugin Data: \${CLAUDE_PLUGIN_DATA}
 
 Your task:
-1. Run: node "\${CLAUDE_PLUGIN_ROOT}/dist/runtime.mjs" review-context
+1. Run: node "\${CLAUDE_PLUGIN_ROOT}/dist/runtime.mjs" review-context "\${SELF_EVOLUTION_TRANSCRIPT_PATH}"
    Returns transcript summary and existing skills.
 2. Decide CREATE / UPDATE / SKIP. SKIP unless: reusable (>=3 steps), generalizable, no one-off data.
 3. Write ONE sentence (<=30 words) explaining WHY. Reject if trivial.
@@ -284,7 +284,7 @@ Your task:
 
 NEVER output ok:false. Always complete and exit.`;
   }
-  return template.replace(/\${SELF_EVOLUTION_SESSION_ID}/g, opts.sessionId).replace(/\${CLAUDE_PLUGIN_ROOT}/g, opts.pluginRoot).replace(/\${CLAUDE_PLUGIN_DATA}/g, opts.pluginData);
+  return template.replace(/\${SELF_EVOLUTION_SESSION_ID}/g, opts.sessionId).replace(/\${CLAUDE_PLUGIN_ROOT}/g, opts.pluginRoot).replace(/\${CLAUDE_PLUGIN_DATA}/g, opts.pluginData).replace(/\${SELF_EVOLUTION_TRANSCRIPT_PATH}/g, opts.transcriptPath);
 }
 var ClaudeCodeSpawner = class {
   platform = "claude-code";
@@ -310,7 +310,8 @@ var ClaudeCodeSpawner = class {
         ...process.env,
         CLAUDE_PLUGIN_ROOT: opts.pluginRoot,
         CLAUDE_PLUGIN_DATA: opts.pluginData,
-        SELF_EVOLUTION_SESSION_ID: opts.sessionId
+        SELF_EVOLUTION_SESSION_ID: opts.sessionId,
+        SELF_EVOLUTION_TRANSCRIPT_PATH: opts.transcriptPath
       }
     });
     child.unref();
@@ -503,10 +504,16 @@ function parseTranscript(transcriptPath) {
     assistantMessages: [],
     totalTurns: 0
   };
+  if (!transcriptPath) {
+    process.stderr.write("[self-evolution] parseTranscript: transcript path is empty\n");
+    return summary;
+  }
   let raw;
   try {
     raw = fs5.readFileSync(transcriptPath, "utf-8").trim();
-  } catch {
+  } catch (err) {
+    process.stderr.write(`[self-evolution] parseTranscript: failed to read "${transcriptPath}": ${err}
+`);
     return summary;
   }
   if (!raw) return summary;
@@ -690,6 +697,9 @@ function runCommand(command, args, stdinData) {
         const transcriptPath = args[0] || process.env.SELF_EVOLUTION_TRANSCRIPT_PATH || "";
         const sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown";
         const logger = createLogger(sessionsDir, sessionId, logLevel);
+        if (!transcriptPath) {
+          logger.info("review_context_missing_transcript_path", { has_arg: !!args[0], has_env: !!process.env.SELF_EVOLUTION_TRANSCRIPT_PATH });
+        }
         const result = handleReviewContext({ transcriptPath, sessionId }, logger);
         process.stdout.write(JSON.stringify(result, null, 2) + "\n");
         return 0;

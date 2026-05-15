@@ -26,7 +26,7 @@ Plugin Root: \${CLAUDE_PLUGIN_ROOT}
 Plugin Data: \${CLAUDE_PLUGIN_DATA}
 
 Your task:
-1. Run: node "\${CLAUDE_PLUGIN_ROOT}/dist/runtime.mjs" review-context
+1. Run: node "\${CLAUDE_PLUGIN_ROOT}/dist/runtime.mjs" review-context "\${SELF_EVOLUTION_TRANSCRIPT_PATH}"
    Returns transcript summary and existing skills.
 2. Decide CREATE / UPDATE / SKIP. SKIP unless: reusable (>=3 steps), generalizable, no one-off data.
 3. Write ONE sentence (<=30 words) explaining WHY. Reject if trivial.
@@ -43,7 +43,8 @@ NEVER output ok:false. Always complete and exit.`;
   return template
     .replace(/\${SELF_EVOLUTION_SESSION_ID}/g, opts.sessionId)
     .replace(/\${CLAUDE_PLUGIN_ROOT}/g, opts.pluginRoot)
-    .replace(/\${CLAUDE_PLUGIN_DATA}/g, opts.pluginData);
+    .replace(/\${CLAUDE_PLUGIN_DATA}/g, opts.pluginData)
+    .replace(/\${SELF_EVOLUTION_TRANSCRIPT_PATH}/g, opts.transcriptPath);
 }
 
 export class ClaudeCodeSpawner implements AgentSpawner {
@@ -71,6 +72,7 @@ export class ClaudeCodeSpawner implements AgentSpawner {
         CLAUDE_PLUGIN_ROOT: opts.pluginRoot,
         CLAUDE_PLUGIN_DATA: opts.pluginData,
         SELF_EVOLUTION_SESSION_ID: opts.sessionId,
+        SELF_EVOLUTION_TRANSCRIPT_PATH: opts.transcriptPath,
       },
     });
 
