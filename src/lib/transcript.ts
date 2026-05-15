@@ -24,21 +24,18 @@ export function parseTranscript(transcriptPath: string): TranscriptSummary {
 
   if (!raw) return summary;
 
-  let messages: unknown[];
+  let entries: unknown[];
 
-  // Try JSON array first
   try {
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      messages = parsed;
+      entries = parsed;
     } else {
-      // Single object - treat as one-item array
-      messages = [parsed];
+      entries = [parsed];
     }
   } catch {
-    // Try JSONL (one JSON per line)
     try {
-      messages = raw
+      entries = raw
         .split("\n")
         .filter((line) => line.trim())
         .map((line) => JSON.parse(line));
@@ -47,23 +44,71 @@ export function parseTranscript(transcriptPath: string): TranscriptSummary {
     }
   }
 
-  for (const msg of messages) {
-    const m = msg as Record<string, unknown>;
-    summary.totalTurns++;
+  for (const entry of entries) {
+    const e = entry as Record<string, unknown>;
+    const type = e.type as string | undefined;
+    const message = e.message as Record<string, unknown> | undefined;
 
-    if (m.role === "user" && typeof m.content === "string") {
-      summary.userMessages.push(m.content);
-    } else if (m.role === "assistant" && typeof m.content === "string") {
-      summary.assistantMessages.push(m.content);
-    } else if (m.role === "tool_use" || m.role === "tool") {
-      const toolCall: TranscriptToolCall = {
-        tool: String(m.name ?? m.tool_name ?? "unknown"),
-        input: (m.input ?? m.tool_input ?? {}) as Record<string, unknown>,
-      };
-      if (m.content || m.output) {
-        toolCall.output = String(m.content ?? m.output ?? "");
+    if (type === "user" && message) {
+      if ((e as Record<string, unknown>).isMeta) continue;
+      const content = message.content;
+      if (typeof content === "string") {
+        summary.userMessages.push(content);
+        summary.totalTurns++;
+      } else if (Array.isArray(content)) {
+        let added = false;
+        for (const block of content) {
+          if (typeof block === "object" && block !== null) {
+            const b = block as Record<string, unknown>;
+            if (b.type === "text" && typeof b.text === "string") {
+              summary.userMessages.push(b.text);
+              added = true;
+            }
+          }
+        }
+        if (added) summary.totalTurns++;
       }
-      summary.toolCalls.push(toolCall);
+    } else if (type === "assistant" && message) {
+      const content = message.content;
+      if (typeof content === "string") {
+        summary.assistantMessages.push(content);
+        summary.totalTurns++;
+      } else if (Array.isArray(content)) {
+        let added = false;
+        for (const block of content) {
+          if (typeof block === "object" && block !== null) {
+            const b = block as Record<string, unknown>;
+            if (b.type === "text" && typeof b.text === "string") {
+              summary.assistantMessages.push(b.text);
+              added = true;
+            } else if (b.type === "tool_use") {
+              const toolCall: TranscriptToolCall = {
+                tool: String(b.name ?? "unknown"),
+                input: (b.input ?? {}) as Record<string, unknown>,
+              };
+              summary.toolCalls.push(toolCall);
+              added = true;
+            }
+          }
+        }
+        if (added) summary.totalTurns++;
+      }
+    } else if (!type && e.role) {
+      summary.totalTurns++;
+      if (e.role === "user" && typeof e.content === "string") {
+        summary.userMessages.push(e.content as string);
+      } else if (e.role === "assistant" && typeof e.content === "string") {
+        summary.assistantMessages.push(e.content as string);
+      } else if (e.role === "tool_use" || e.role === "tool") {
+        const toolCall: TranscriptToolCall = {
+          tool: String(e.name ?? e.tool_name ?? "unknown"),
+          input: (e.input ?? e.tool_input ?? {}) as Record<string, unknown>,
+        };
+        if (e.content || e.output) {
+          toolCall.output = String(e.content ?? e.output ?? "");
+        }
+        summary.toolCalls.push(toolCall);
+      }
     }
   }
 
