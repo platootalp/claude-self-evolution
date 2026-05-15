@@ -317,4 +317,35 @@ describe("security scanWrite", () => {
     expect(result.allowed).toBe(true);
     expect(result.reason).toContain("caution");
   });
+
+  // Unicode detection
+  it("blocks bidirectional override U+202A (dangerous)", () => {
+    const result = scanWrite(path.join(SKILLS_DIR, "uni1", "SKILL.md"), "safe‪evil text");
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("unicode");
+  });
+
+  it("blocks bidirectional override U+202E (dangerous)", () => {
+    const result = scanWrite(path.join(SKILLS_DIR, "uni2", "SKILL.md"), "safe‮evil text");
+    expect(result.allowed).toBe(false);
+  });
+
+  it("flags zero-width space U+200B as caution (allowed but warned)", () => {
+    const result = scanWrite(path.join(SKILLS_DIR, "uni3", "SKILL.md"), "safe​hidden text");
+    expect(result.allowed).toBe(true);
+    expect(result.reason).toContain("caution");
+    expect(result.reason).toContain("unicode");
+  });
+
+  it("flags BOM U+FEFF as caution", () => {
+    const result = scanWrite(path.join(SKILLS_DIR, "uni4", "SKILL.md"), "﻿safe text");
+    expect(result.allowed).toBe(true);
+    expect(result.reason).toContain("caution");
+  });
+
+  it("allows content without invisible Unicode", () => {
+    const result = scanWrite(path.join(SKILLS_DIR, "uni5", "SKILL.md"), "Normal skill content with no hidden chars");
+    expect(result.allowed).toBe(true);
+    expect(result.reason).toBeUndefined();
+  });
 });
