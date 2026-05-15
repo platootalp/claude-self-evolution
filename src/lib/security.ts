@@ -82,7 +82,7 @@ export function scanWrite(
   content: string,
   options: ScanOptions = {}
 ): ScanResult {
-  const maxSkillSize = options.maxSkillSize ?? 15360;
+  const maxSkillSize = options.maxSkillSize ?? 262144;
 
   // 1. Path whitelist: only ~/.claude/skills/<name>/SKILL.md
   const normalizedTarget = path.normalize(targetPath);

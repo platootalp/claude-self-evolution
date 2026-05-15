@@ -488,7 +488,7 @@ function scanContent(content) {
   return matches;
 }
 function scanWrite(targetPath, content, options = {}) {
-  const maxSkillSize = options.maxSkillSize ?? 15360;
+  const maxSkillSize = options.maxSkillSize ?? 262144;
   const normalizedTarget = path5.normalize(targetPath);
   const normalizedSkillsDir = path5.normalize(SKILLS_DIR);
   const normalizedClaudeDir = path5.normalize(path5.join(os.homedir(), ".claude"));

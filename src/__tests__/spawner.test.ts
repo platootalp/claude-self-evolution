@@ -122,6 +122,11 @@ describe("spawner", () => {
 
     const spawnArgs = (spawn as any).mock.calls[0];
     expect(spawnArgs[1]).not.toContain("--model");
+    // Verify default --max-turns 8 when reviewMaxTurns not provided
+    const args = spawnArgs[1] as string[];
+    const maxTurnsIdx = args.indexOf("--max-turns");
+    expect(maxTurnsIdx).not.toBe(-1);
+    expect(args[maxTurnsIdx + 1]).toBe("8");
   });
 
   it("getSpawner respects SELF_EVOLUTION_PLATFORM env var", () => {

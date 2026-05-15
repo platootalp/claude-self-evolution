@@ -154,11 +154,12 @@ describe("security scanWrite", () => {
   });
 
   // Size limit
-  it("blocks oversize content (>15KB default)", () => {
+  it("blocks oversize content", () => {
     const bigContent = "---\nname: meta-oversize\ndescription: test\n---\n\n" + "x".repeat(16000);
     const result = scanWrite(
       path.join(SKILLS_DIR, "meta-oversize", "SKILL.md"),
-      bigContent
+      bigContent,
+      { maxSkillSize: 10000 }
     );
     expect(result.allowed).toBe(false);
     expect(result.reason).toContain("too large");
