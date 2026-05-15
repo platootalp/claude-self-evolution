@@ -1,71 +1,112 @@
-// self-evolution runtime — auto-generated bundle
-
-
 // src/runtime.ts
-import fs6 from "node:fs";
-import path6 from "node:path";
+import fs8 from "node:fs";
+import path7 from "node:path";
 import os3 from "node:os";
 
-// src/lib/logger.ts
+// src/lib/config.ts
 import fs from "node:fs";
 import path from "node:path";
+var DEFAULT_CONFIG = {
+  nudge_interval: 10,
+  max_skill_size: 15360,
+  review_model: "sonnet",
+  platform: "auto",
+  category_whitelist: ["debug", "refactor", "test", "deploy", "data", "web", "cli", "meta"],
+  meta_skill_name: "evolve-skill-writer",
+  log_level: "info"
+};
+function loadConfig(pluginRoot) {
+  for (const name of ["config.json", "config.default.json"]) {
+    try {
+      const raw = fs.readFileSync(path.join(pluginRoot, name), "utf-8");
+      return { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
+    } catch {
+    }
+  }
+  return { ...DEFAULT_CONFIG };
+}
+function resolveConfig(pluginRoot) {
+  const config = loadConfig(pluginRoot);
+  if (process.env.SELF_EVOLUTION_NUDGE_INTERVAL) config.nudge_interval = parseInt(process.env.SELF_EVOLUTION_NUDGE_INTERVAL, 10);
+  if (process.env.SELF_EVOLUTION_MAX_SKILL_SIZE) config.max_skill_size = parseInt(process.env.SELF_EVOLUTION_MAX_SKILL_SIZE, 10);
+  if (process.env.SELF_EVOLUTION_REVIEW_MODEL) config.review_model = process.env.SELF_EVOLUTION_REVIEW_MODEL;
+  if (process.env.SELF_EVOLUTION_PLATFORM) config.platform = process.env.SELF_EVOLUTION_PLATFORM;
+  if (process.env.SELF_EVOLUTION_LOG_LEVEL) config.log_level = process.env.SELF_EVOLUTION_LOG_LEVEL;
+  return config;
+}
+function resolveLogLevel(config) {
+  const level = config.log_level.toLowerCase();
+  if (level === "off" || level === "info" || level === "debug") return level;
+  return "info";
+}
+
+// src/lib/logger.ts
+import fs2 from "node:fs";
+import path2 from "node:path";
 function appendLine(logPath, line) {
   try {
-    const dir = path.dirname(logPath);
-    fs.mkdirSync(dir, { recursive: true });
-    fs.appendFileSync(logPath, line + "\n", "utf-8");
+    const dir = path2.dirname(logPath);
+    fs2.mkdirSync(dir, { recursive: true });
+    fs2.appendFileSync(logPath, line + "\n", "utf-8");
   } catch {
   }
 }
-function logEvent(logPath, level, event, kv = {}) {
-  const entry = {
-    ts: (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z"),
-    level,
-    event,
-    pid: process.pid,
-    ...kv
-  };
-  appendLine(logPath, JSON.stringify(entry));
+function shouldLog(level, eventLevel) {
+  if (level === "off") return false;
+  if (level === "debug") return true;
+  return eventLevel === "info";
 }
-function logDecision(logPath, decision, detail, durationMs, sessionId) {
-  const entry = {
-    ts: (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z"),
-    level: "info",
-    event: "reviewer_decision",
-    decision,
-    detail,
-    duration_ms: durationMs,
-    session_id: sessionId,
-    pid: process.pid
+function createLogger(sessionsDir, sessionId, logLevel) {
+  const logPath = path2.join(sessionsDir, sessionId, "log.jsonl");
+  function writeEntry(eventLevel, event, kv) {
+    if (!shouldLog(logLevel, eventLevel)) return;
+    try {
+      const entry = {
+        ...kv,
+        ts: (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z"),
+        level: eventLevel,
+        event,
+        session_id: sessionId,
+        pid: process.pid
+      };
+      appendLine(logPath, JSON.stringify(entry));
+    } catch {
+    }
+  }
+  return {
+    info(event, kv) {
+      writeEntry("info", event, kv);
+    },
+    debug(event, kv) {
+      writeEntry("debug", event, kv);
+    },
+    logDecision(decision, detail, durationMs) {
+      writeEntry("info", "review_decision", {
+        decision,
+        detail,
+        duration_ms: durationMs
+      });
+    }
   };
-  appendLine(logPath, JSON.stringify(entry));
-}
-
-// src/commands/session-start.ts
-function handleSessionStart(logPath, env) {
-  logEvent(logPath, "info", "diag_hook_fired", {
-    CLAUDE_PLUGIN_ROOT: env.CLAUDE_PLUGIN_ROOT ?? "EMPTY",
-    CLAUDE_PLUGIN_DATA: env.CLAUDE_PLUGIN_DATA ?? "EMPTY"
-  });
 }
 
 // src/lib/state.ts
-import fs2 from "node:fs";
-import path2 from "node:path";
+import fs3 from "node:fs";
+import path3 from "node:path";
 function loadState(statePath) {
   try {
-    const raw = fs2.readFileSync(statePath, "utf-8");
+    const raw = fs3.readFileSync(statePath, "utf-8");
     return JSON.parse(raw);
   } catch {
     return { sessions: {}, jobs: [] };
   }
 }
 function saveState(statePath, state) {
-  const dir = path2.dirname(statePath);
-  fs2.mkdirSync(dir, { recursive: true });
+  const dir = path3.dirname(statePath);
+  fs3.mkdirSync(dir, { recursive: true });
   const tmpPath = statePath + ".tmp";
-  fs2.writeFileSync(tmpPath, JSON.stringify(state, null, 2), "utf-8");
-  fs2.renameSync(tmpPath, statePath);
+  fs3.writeFileSync(tmpPath, JSON.stringify(state, null, 2), "utf-8");
+  fs3.renameSync(tmpPath, statePath);
 }
 function incrementCount(statePath, sessionId, threshold = 10) {
   const state = loadState(statePath);
@@ -99,26 +140,130 @@ function addJob(statePath, job) {
   state.jobs.push(job);
   saveState(statePath, state);
 }
+function initSessionState(sessionsDir, sessionId, partial = {}) {
+  const dir = path3.join(sessionsDir, sessionId);
+  fs3.mkdirSync(dir, { recursive: true });
+  const state = {
+    count: 0,
+    pending_review: false,
+    start_ts: (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z"),
+    ...partial
+  };
+  const statePath = path3.join(dir, "state.json");
+  const tmpPath = statePath + ".tmp";
+  fs3.writeFileSync(tmpPath, JSON.stringify(state, null, 2), "utf-8");
+  fs3.renameSync(tmpPath, statePath);
+}
+function loadSessionState(sessionsDir, sessionId) {
+  const statePath = path3.join(sessionsDir, sessionId, "state.json");
+  try {
+    const raw = fs3.readFileSync(statePath, "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return { count: 0, pending_review: false };
+  }
+}
+function saveSessionState(sessionsDir, sessionId, state) {
+  const dir = path3.join(sessionsDir, sessionId);
+  fs3.mkdirSync(dir, { recursive: true });
+  const statePath = path3.join(dir, "state.json");
+  const tmpPath = statePath + ".tmp";
+  fs3.writeFileSync(tmpPath, JSON.stringify(state, null, 2), "utf-8");
+  fs3.renameSync(tmpPath, statePath);
+}
+function updateSessionResult(sessionsDir, sessionId, result) {
+  const state = loadSessionState(sessionsDir, sessionId);
+  Object.assign(state, result, { end_ts: (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z") });
+  saveSessionState(sessionsDir, sessionId, state);
+}
+var EMPTY_STATS = {
+  last_updated: "",
+  total_sessions: 0,
+  total_created: 0,
+  total_updated: 0,
+  total_skipped: 0,
+  skip_reasons: {},
+  recent_decisions: []
+};
+var MAX_RECENT_DECISIONS = 50;
+function loadStats(statsPath) {
+  try {
+    const raw = fs3.readFileSync(statsPath, "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return { ...EMPTY_STATS, skip_reasons: {}, recent_decisions: [] };
+  }
+}
+function saveStats(statsPath, stats) {
+  const dir = path3.dirname(statsPath);
+  fs3.mkdirSync(dir, { recursive: true });
+  const tmpPath = statsPath + ".tmp";
+  fs3.writeFileSync(tmpPath, JSON.stringify(stats, null, 2), "utf-8");
+  fs3.renameSync(tmpPath, statsPath);
+}
+function updateStats(statsPath, decision, detail, sessionId, skillName) {
+  const stats = loadStats(statsPath);
+  stats.last_updated = (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z");
+  stats.total_sessions += 1;
+  if (decision === "CREATED") stats.total_created += 1;
+  else if (decision === "UPDATED") stats.total_updated += 1;
+  else if (decision === "SKIPPED") {
+    stats.total_skipped += 1;
+    stats.skip_reasons[detail] = (stats.skip_reasons[detail] ?? 0) + 1;
+  }
+  const rd = {
+    ts: stats.last_updated,
+    session_id: sessionId,
+    decision,
+    detail,
+    ...skillName ? { skill_name: skillName } : {}
+  };
+  stats.recent_decisions.unshift(rd);
+  if (stats.recent_decisions.length > MAX_RECENT_DECISIONS) {
+    stats.recent_decisions = stats.recent_decisions.slice(0, MAX_RECENT_DECISIONS);
+  }
+  saveStats(statsPath, stats);
+}
+
+// src/commands/session-start.ts
+function handleSessionStart(sessionsDir, sessionId, logger, env) {
+  initSessionState(sessionsDir, sessionId);
+  logger.info("hook_triggered", {
+    event: "session_start",
+    CLAUDE_PLUGIN_ROOT: env.CLAUDE_PLUGIN_ROOT ?? "EMPTY",
+    CLAUDE_PLUGIN_DATA: env.CLAUDE_PLUGIN_DATA ?? "EMPTY"
+  });
+  logger.debug("counter_state", { count: 0, pending_review: false });
+}
 
 // src/commands/post-tool-use.ts
-function handlePostToolUse(statePath, input, threshold = 10) {
-  if (!input.session_id) return;
-  incrementCount(statePath, input.session_id, threshold);
+function handlePostToolUse(statePath, sessionsDir, input, logger, threshold = 10) {
+  if (!input.session_id) return 0;
+  const stateBefore = loadState(statePath);
+  const prevPending = stateBefore.sessions[input.session_id]?.pending_review ?? false;
+  const newCount = incrementCount(statePath, input.session_id, threshold);
+  const stateAfter = loadState(statePath);
+  const nowPending = stateAfter.sessions[input.session_id]?.pending_review ?? false;
+  logger.debug("counter_state", { count: newCount, pending_review: nowPending, session_id: input.session_id });
+  if (!prevPending && nowPending) {
+    logger.info("hook_triggered", { event: "post_tool_use", pending: true, session_id: input.session_id });
+  }
+  return newCount;
 }
 
 // src/lib/spawner.ts
 import { spawn } from "node:child_process";
-import fs3 from "node:fs";
-import path3 from "node:path";
+import fs4 from "node:fs";
+import path4 from "node:path";
 import crypto from "node:crypto";
 function generateId() {
   return `job-${crypto.randomUUID().slice(0, 8)}`;
 }
 function buildReviewPrompt(opts, pluginRoot) {
-  const templatePath = path3.join(pluginRoot, "prompts", "review-prompt.md");
+  const templatePath = path4.join(pluginRoot, "prompts", "review-prompt.md");
   let template;
   try {
-    template = fs3.readFileSync(templatePath, "utf-8");
+    template = fs4.readFileSync(templatePath, "utf-8");
   } catch {
     template = `You are a self-evolution reviewer. A conversation has ended and the nudge threshold was met.
 
@@ -211,7 +356,7 @@ function getSpawner(platform) {
 }
 
 // src/commands/stop-gate.ts
-function handleStopGate(statePath, input, options) {
+function handleStopGate(statePath, sessionsDir, sessionId, input, options, logger) {
   if (input.stop_hook_active) {
     return { action: "allow", spawned: false };
   }
@@ -220,10 +365,12 @@ function handleStopGate(statePath, input, options) {
   }
   const hasPending = consumePending(statePath, input.session_id);
   if (!hasPending) {
+    logger.info("review_skipped", { reason: "no_pending_review", session_id: input.session_id });
     return { action: "allow", spawned: false };
   }
   try {
     const spawner = getSpawner(options.platform);
+    const startTime = Date.now();
     const jobPromise = spawner.spawnReviewProcess({
       sessionId: input.session_id,
       transcriptPath: input.transcript_path,
@@ -231,32 +378,39 @@ function handleStopGate(statePath, input, options) {
       pluginData: options.pluginData,
       reviewModel: options.reviewModel
     });
+    logger.info("review_launched", { session_id: input.session_id });
     jobPromise.then((job) => {
       addJob(statePath, job);
+      const duration = Date.now() - startTime;
+      logger.debug("spawn_completed", { exit_code: 0, duration_ms: duration, job_id: job.id, pid: job.pid });
     }).catch((err) => {
-      console.error("stop-gate: failed to spawn review process:", err);
+      const duration = Date.now() - startTime;
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.info("review_error", { error: msg, stage: "spawn", session_id: input.session_id, duration_ms: duration });
     });
     return { action: "allow", spawned: true, jobId: "pending" };
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.info("review_error", { error: msg, stage: "spawn", session_id: input.session_id });
     return { action: "allow", spawned: false };
   }
 }
 
 // src/lib/security.ts
-import path4 from "node:path";
+import path5 from "node:path";
 import os from "node:os";
-var SKILLS_DIR = path4.join(os.homedir(), ".claude", "skills");
+var SKILLS_DIR = path5.join(os.homedir(), ".claude", "skills");
 var PI_PATTERN = /(?:ignore previous|disregard above|<\||system:.*you are now|dump.*database|forget.*instructions)/i;
 var BASH_PATTERN = /rm -rf \/(?: |$)|curl[^|]*\| *(?:ba)?sh|eval\s+\$\(|wget[^|]*-O\s*-/;
 var SECRET_PATTERN = /(?:sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]+PRIVATE KEY-----|ghp_[A-Za-z0-9]{36})/;
 function scanWrite(targetPath, content, options = {}) {
   const maxSkillSize = options.maxSkillSize ?? 15360;
-  const normalizedTarget = path4.normalize(targetPath);
-  const normalizedSkillsDir = path4.normalize(SKILLS_DIR);
-  const normalizedClaudeDir = path4.normalize(path4.join(os.homedir(), ".claude"));
-  if (normalizedTarget.startsWith(normalizedClaudeDir + path4.sep) || normalizedTarget === normalizedClaudeDir) {
-    const rel = path4.relative(normalizedSkillsDir, normalizedTarget);
-    if (rel.startsWith("..") || path4.isAbsolute(rel)) {
+  const normalizedTarget = path5.normalize(targetPath);
+  const normalizedSkillsDir = path5.normalize(SKILLS_DIR);
+  const normalizedClaudeDir = path5.normalize(path5.join(os.homedir(), ".claude"));
+  if (normalizedTarget.startsWith(normalizedClaudeDir + path5.sep) || normalizedTarget === normalizedClaudeDir) {
+    const rel = path5.relative(normalizedSkillsDir, normalizedTarget);
+    if (rel.startsWith("..") || path5.isAbsolute(rel)) {
       return { allowed: false, reason: "path_escape: write to ~/.claude/ outside skills/<name>/SKILL.md" };
     }
     if (!/^[^/]+\/SKILL\.md$/.test(rel)) {
@@ -303,10 +457,22 @@ function scanWrite(targetPath, content, options = {}) {
 }
 
 // src/commands/security-scan.ts
-function handleSecurityScan(args) {
-  return scanWrite(args.path, args.content, {
+function handleSecurityScan(args, logger) {
+  const result = scanWrite(args.path, args.content, {
     maxSkillSize: args.maxSkillSize
   });
+  if (!result.allowed) {
+    logger?.info("security_blocked", {
+      category: result.reason ?? "unknown",
+      target_path: args.path
+    });
+  } else {
+    logger?.debug("security_scan_detail", {
+      target_path: args.path,
+      result: "passed"
+    });
+  }
+  return result;
 }
 function parseSecurityScanArgs(argv) {
   const args = { path: "", content: "" };
@@ -323,12 +489,12 @@ function parseSecurityScanArgs(argv) {
 }
 
 // src/commands/review-context.ts
-import fs5 from "node:fs";
-import path5 from "node:path";
+import fs6 from "node:fs";
+import path6 from "node:path";
 import os2 from "node:os";
 
 // src/lib/transcript.ts
-import fs4 from "node:fs";
+import fs5 from "node:fs";
 function parseTranscript(transcriptPath) {
   const summary = {
     toolCalls: [],
@@ -338,7 +504,7 @@ function parseTranscript(transcriptPath) {
   };
   let raw;
   try {
-    raw = fs4.readFileSync(transcriptPath, "utf-8").trim();
+    raw = fs5.readFileSync(transcriptPath, "utf-8").trim();
   } catch {
     return summary;
   }
@@ -380,15 +546,21 @@ function parseTranscript(transcriptPath) {
 }
 
 // src/commands/review-context.ts
-function handleReviewContext(options) {
-  const skillsDir = options.skillsDir ?? path5.join(os2.homedir(), ".claude", "skills");
+function handleReviewContext(options, logger) {
+  const skillsDir = options.skillsDir ?? path6.join(os2.homedir(), ".claude", "skills");
   const transcript = parseTranscript(options.transcriptPath);
   let existingSkills = [];
   try {
-    const entries = fs5.readdirSync(skillsDir, { withFileTypes: true });
+    const entries = fs6.readdirSync(skillsDir, { withFileTypes: true });
     existingSkills = entries.filter((e) => e.isDirectory()).map((e) => e.name);
   } catch {
   }
+  logger?.debug("context_retrieved", {
+    session_id: options.sessionId ?? "unknown",
+    transcript_length: transcript.toolCalls.length,
+    total_turns: transcript.totalTurns,
+    skills_count: existingSkills.length
+  });
   return {
     toolCalls: transcript.toolCalls,
     userMessages: transcript.userMessages,
@@ -399,86 +571,97 @@ function handleReviewContext(options) {
 }
 
 // src/commands/log-decision.ts
-function handleLogDecision(logPath, decision, detail, sessionId = "") {
-  logDecision(logPath, decision, detail, 0, sessionId);
+function handleLogDecision(sessionsDir, statsPath, sessionId, decision, detail, logger) {
+  logger.logDecision(decision, detail, 0);
+  if (decision === "CREATED" || decision === "UPDATED" || decision === "SKIPPED") {
+    const skillName = decision !== "SKIPPED" ? extractSkillName(detail) : void 0;
+    updateStats(statsPath, decision, detail, sessionId, skillName);
+    updateSessionResult(sessionsDir, sessionId, {
+      review_decision: decision,
+      review_detail: detail,
+      ...skillName ? { skill_name: skillName } : {}
+    });
+    if (skillName) {
+      logger.info("skill_written", { skill_name: skillName });
+    }
+  }
+}
+function extractSkillName(detail) {
+  const match = detail.match(/skill[_\s-]?name[:\s=]+(\S+)/i);
+  return match ? match[1] : void 0;
 }
 
 // src/commands/status.ts
-function handleStatus(statePath) {
+import fs7 from "node:fs";
+function handleStatus(statePath, statsPath) {
   const state = loadState(statePath);
+  let stats = null;
+  if (fs7.existsSync(statsPath)) {
+    stats = loadStats(statsPath);
+  }
   return {
-    sessions: state.sessions,
-    jobs: state.jobs
+    active: {
+      sessions: state.sessions,
+      jobs: state.jobs
+    },
+    stats
   };
 }
 
 // src/runtime.ts
-var DEFAULT_CONFIG = {
-  nudge_interval: 10,
-  max_skill_size: 15360,
-  review_model: "sonnet",
-  platform: "auto",
-  category_whitelist: ["debug", "refactor", "test", "deploy", "data", "web", "cli", "meta"],
-  meta_skill_name: "evolve-skill-writer"
-};
-function loadConfig(pluginRoot) {
-  for (const name of ["config.json", "config.default.json"]) {
-    try {
-      const raw = fs6.readFileSync(path6.join(pluginRoot, name), "utf-8");
-      return { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
-    } catch {
-    }
-  }
-  return { ...DEFAULT_CONFIG };
-}
 function resolvePaths() {
   const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT ?? "";
   const pluginData = process.env.CLAUDE_PLUGIN_DATA ?? (() => {
     if (pluginRoot) {
-      const name = path6.basename(pluginRoot);
-      const marketplace = path6.basename(path6.dirname(pluginRoot));
-      return path6.join(os3.homedir(), ".claude", "plugins", "data", `${name}-${marketplace}`);
+      const name = path7.basename(pluginRoot);
+      const marketplace = path7.basename(path7.dirname(pluginRoot));
+      return path7.join(os3.homedir(), ".claude", "plugins", "data", `${name}-${marketplace}`);
     }
-    return path6.join(os3.homedir(), ".claude", "plugins", "data", "self-evolution-self-evolution-marketplace");
+    return path7.join(os3.homedir(), ".claude", "plugins", "data", "self-evolution-self-evolution-marketplace");
   })();
-  const config = loadConfig(pluginRoot);
-  if (process.env.SELF_EVOLUTION_NUDGE_INTERVAL) config.nudge_interval = parseInt(process.env.SELF_EVOLUTION_NUDGE_INTERVAL, 10);
-  if (process.env.SELF_EVOLUTION_MAX_SKILL_SIZE) config.max_skill_size = parseInt(process.env.SELF_EVOLUTION_MAX_SKILL_SIZE, 10);
-  if (process.env.SELF_EVOLUTION_REVIEW_MODEL) config.review_model = process.env.SELF_EVOLUTION_REVIEW_MODEL;
-  if (process.env.SELF_EVOLUTION_PLATFORM) config.platform = process.env.SELF_EVOLUTION_PLATFORM;
+  const config = resolveConfig(pluginRoot);
   return {
-    statePath: path6.join(pluginData, "state.json"),
-    logPath: path6.join(process.env.SELF_EVOLUTION_LOG_DIR ?? path6.join(os3.homedir(), ".claude", "logs"), "self-evolution.jsonl"),
+    statePath: path7.join(pluginData, "state.json"),
+    sessionsDir: path7.join(pluginData, "sessions"),
+    statsPath: path7.join(pluginData, "stats.json"),
     pluginRoot,
     pluginData,
     config
   };
 }
 function runCommand(command, args, stdinData) {
-  const { statePath, logPath, pluginRoot, pluginData, config } = resolvePaths();
+  const { statePath, sessionsDir, statsPath, pluginRoot, pluginData, config } = resolvePaths();
+  const logLevel = resolveLogLevel(config);
   try {
     switch (command) {
-      case "session-start":
-        handleSessionStart(logPath, {
+      case "session-start": {
+        const sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`;
+        const logger = createLogger(sessionsDir, sessionId, logLevel);
+        handleSessionStart(sessionsDir, sessionId, logger, {
           CLAUDE_PLUGIN_ROOT: process.env.CLAUDE_PLUGIN_ROOT ?? "",
           CLAUDE_PLUGIN_DATA: process.env.CLAUDE_PLUGIN_DATA ?? ""
         });
         return 0;
+      }
       case "post-tool-use": {
         if (!stdinData) return 0;
         const input = JSON.parse(stdinData);
-        handlePostToolUse(statePath, input, config.nudge_interval);
+        const sessionId = input.session_id ?? process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown";
+        const logger = createLogger(sessionsDir, sessionId, logLevel);
+        handlePostToolUse(statePath, sessionsDir, input, logger, config.nudge_interval);
         return 0;
       }
       case "stop-gate": {
         if (!stdinData) return 0;
         const input = JSON.parse(stdinData);
-        handleStopGate(statePath, input, {
+        const sessionId = input.session_id ?? process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown";
+        const logger = createLogger(sessionsDir, sessionId, logLevel);
+        handleStopGate(statePath, sessionsDir, sessionId, input, {
           pluginRoot,
           pluginData,
           reviewModel: config.review_model,
           platform: config.platform
-        });
+        }, logger);
         return 0;
       }
       case "security-scan": {
@@ -488,25 +671,30 @@ function runCommand(command, args, stdinData) {
           return 1;
         }
         scanArgs.maxSkillSize = scanArgs.maxSkillSize ?? config.max_skill_size;
-        const result = handleSecurityScan(scanArgs);
+        const sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown";
+        const logger = createLogger(sessionsDir, sessionId, logLevel);
+        const result = handleSecurityScan(scanArgs, logger);
         process.stdout.write(JSON.stringify(result) + "\n");
         return 0;
       }
       case "review-context": {
         const transcriptPath = args[0] || process.env.SELF_EVOLUTION_TRANSCRIPT_PATH || "";
-        const result = handleReviewContext({ transcriptPath });
+        const sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown";
+        const logger = createLogger(sessionsDir, sessionId, logLevel);
+        const result = handleReviewContext({ transcriptPath, sessionId }, logger);
         process.stdout.write(JSON.stringify(result, null, 2) + "\n");
         return 0;
       }
       case "log-decision": {
         const decision = args[0] || "unknown";
         const detail = args[1] || "";
-        const sessionId = args[2] || "";
-        handleLogDecision(logPath, decision, detail, sessionId);
+        const sessionId = args[2] || (process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown");
+        const logger = createLogger(sessionsDir, sessionId, logLevel);
+        handleLogDecision(sessionsDir, statsPath, sessionId, decision, detail, logger);
         return 0;
       }
       case "status": {
-        const result = handleStatus(statePath);
+        const result = handleStatus(statePath, statsPath);
         process.stdout.write(JSON.stringify(result, null, 2) + "\n");
         return 0;
       }
@@ -527,7 +715,7 @@ if (process.argv[1]?.endsWith("runtime.ts") || process.argv[1]?.endsWith("runtim
   let stdinData = "";
   if (["post-tool-use", "stop-gate"].includes(command)) {
     try {
-      stdinData = fs6.readFileSync("/dev/stdin", "utf-8").trim();
+      stdinData = fs8.readFileSync("/dev/stdin", "utf-8").trim();
     } catch {
     }
   }
