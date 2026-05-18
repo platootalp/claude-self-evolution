@@ -2,16 +2,15 @@
 
 
 // src/runtime.ts
-import fs9 from "node:fs";
-import path8 from "node:path";
-import os4 from "node:os";
+import fs11 from "node:fs";
+import path9 from "node:path";
+import os5 from "node:os";
 
 // src/lib/config.ts
 import fs from "node:fs";
 import path from "node:path";
 var DEFAULT_CONFIG = {
   nudge_interval: 10,
-  max_skill_size: 15360,
   review_model: "sonnet",
   platform: "auto",
   category_whitelist: ["debug", "refactor", "test", "deploy", "data", "web", "cli", "meta"],
@@ -36,7 +35,6 @@ function loadConfig(pluginRoot) {
 function resolveConfig(pluginRoot) {
   const config = loadConfig(pluginRoot);
   if (process.env.SELF_EVOLUTION_NUDGE_INTERVAL) config.nudge_interval = parseInt(process.env.SELF_EVOLUTION_NUDGE_INTERVAL, 10);
-  if (process.env.SELF_EVOLUTION_MAX_SKILL_SIZE) config.max_skill_size = parseInt(process.env.SELF_EVOLUTION_MAX_SKILL_SIZE, 10);
   if (process.env.SELF_EVOLUTION_REVIEW_MODEL) config.review_model = process.env.SELF_EVOLUTION_REVIEW_MODEL;
   if (process.env.SELF_EVOLUTION_PLATFORM) config.platform = process.env.SELF_EVOLUTION_PLATFORM;
   if (process.env.SELF_EVOLUTION_LOG_LEVEL) config.log_level = process.env.SELF_EVOLUTION_LOG_LEVEL;
@@ -429,14 +427,102 @@ function handleStopGate(statePath, sessionsDir, sessionId, input, options, logge
 // src/lib/security.ts
 import path5 from "node:path";
 import os from "node:os";
-var SKILLS_DIR = path5.join(os.homedir(), ".claude", "skills");
-var PI_PATTERN = /(?:ignore previous|disregard above|<\||system:.*you are now|dump.*database|forget.*instructions)/i;
-var BASH_PATTERN = /rm -rf \/(?: |$)|curl[^|]*\| *(?:ba)?sh|eval\s+\$\(|wget[^|]*-O\s*-/;
-var SECRET_PATTERN = /(?:sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]+PRIVATE KEY-----|ghp_[A-Za-z0-9]{36})/;
+import fs5 from "node:fs";
+var _skillsDir = null;
+function getSkillsDir() {
+  if (!_skillsDir) {
+    _skillsDir = path5.join(os.homedir(), ".claude", "skills");
+  }
+  return _skillsDir;
+}
+var SECURITY_PATTERNS = [
+  // Prompt injection (migrated from PI_PATTERN)
+  { id: "pi-ignore-previous", severity: "dangerous", category: "prompt_injection", pattern: /(?:ignore previous|disregard above|<\||system:.*you are now|dump.*database|forget.*instructions)/i, description: "Prompt injection attempt" },
+  // Dangerous bash (migrated from BASH_PATTERN)
+  { id: "bash-rf-slash", severity: "dangerous", category: "execution", pattern: /rm -rf \/(?: |$)|curl[^|]*\| *(?:ba)?sh|eval\s+\$\(|wget[^|]*-O\s*-/, description: "Dangerous bash command" },
+  // Secret leaks (migrated from SECRET_PATTERN)
+  { id: "secret-api-key", severity: "dangerous", category: "secret", pattern: /(?:sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]+PRIVATE KEY-----|ghp_[A-Za-z0-9]{36})/, description: "Secret or credential leak" },
+  // Persistence
+  { id: "persist-crontab", severity: "dangerous", category: "persistence", pattern: /crontab\s+/, description: "Crontab persistence" },
+  { id: "persist-bashrc", severity: "dangerous", category: "persistence", pattern: /\.(?:bashrc|zshrc|profile|bash_profile)\b/, description: "Shell RC file modification" },
+  { id: "persist-authorized-keys", severity: "dangerous", category: "persistence", pattern: /authorized_keys/, description: "SSH authorized_keys modification" },
+  { id: "persist-systemd", severity: "dangerous", category: "persistence", pattern: /systemctl\s+(?:enable|start|create)/, description: "Systemd service persistence" },
+  { id: "persist-launchd", severity: "dangerous", category: "persistence", pattern: /launchctl\s+(?:load|start)/, description: "Launchd persistence" },
+  { id: "persist-at", severity: "caution", category: "persistence", pattern: /\bat\b\s+/, description: "At command scheduled execution" },
+  // Network
+  { id: "net-reverse-shell-tcp", severity: "dangerous", category: "network", pattern: /\/dev\/tcp\//, description: "Bash /dev/tcp reverse shell" },
+  { id: "net-reverse-shell", severity: "dangerous", category: "network", pattern: /(?:nc|ncat|netcat)\s+.*-[elv]/, description: "Netcat reverse shell" },
+  { id: "net-tunnel", severity: "dangerous", category: "network", pattern: /(?:ngrok|cloudflared)\s+/, description: "Tunneling tool usage" },
+  { id: "net-hardcoded-ip", severity: "caution", category: "network", pattern: /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{2,5}\b/, description: "Hardcoded IP:port" },
+  { id: "net-socat", severity: "dangerous", category: "network", pattern: /socat\s+/, description: "Socat network relay" },
+  { id: "net-nc-listen", severity: "dangerous", category: "network", pattern: /nc\s+-l/, description: "Netcat listener" },
+  // Execution
+  { id: "exec-subprocess", severity: "dangerous", category: "execution", pattern: /subprocess\.(?:call|run|Popen|check_output)/, description: "Python subprocess execution" },
+  { id: "exec-os-system", severity: "dangerous", category: "execution", pattern: /os\.system\s*\(/, description: "os.system execution" },
+  { id: "exec-os-exec", severity: "dangerous", category: "execution", pattern: /os\.exec[a-z]+\s*\(/, description: "os.exec family execution" },
+  { id: "exec-child-process", severity: "dangerous", category: "execution", pattern: /child_process\.exec(?:Sync)?\s*\(/, description: "Node.js child_process.exec" },
+  { id: "exec-eval", severity: "caution", category: "execution", pattern: /eval\s*\(/, description: "eval() execution" },
+  { id: "exec-popen", severity: "dangerous", category: "execution", pattern: /(?:os\.)?popen\s*\(/, description: "popen execution" },
+  // Path traversal
+  { id: "path-traversal-dot", severity: "dangerous", category: "path_traversal", pattern: /\.\.[\\\/]/, description: "Directory traversal with ../" },
+  { id: "path-etc-passwd", severity: "dangerous", category: "path_traversal", pattern: /\/etc\/passwd/, description: "Access to /etc/passwd" },
+  { id: "path-proc-self", severity: "dangerous", category: "path_traversal", pattern: /\/proc\/self/, description: "Access to /proc/self" },
+  { id: "path-root-ssh", severity: "dangerous", category: "path_traversal", pattern: /\/root\/\.ssh/, description: "Access to /root/.ssh" },
+  { id: "path-etc-shadow", severity: "dangerous", category: "path_traversal", pattern: /\/etc\/shadow/, description: "Access to /etc/shadow" },
+  // Data exfiltration
+  { id: "exfil-curl-token", severity: "dangerous", category: "data_exfiltration", pattern: /curl.*\$\{?[A-Z_]+[A-Z_0-9]*\}?/, description: "curl with env var token" },
+  { id: "exfil-environ-pipe", severity: "dangerous", category: "data_exfiltration", pattern: /os\.environ.*\|/, description: "os.environ piped externally" },
+  { id: "exfil-dns", severity: "dangerous", category: "data_exfiltration", pattern: /(?:nslookup|dig|host)\s+.*\$/, description: "DNS exfiltration" },
+  { id: "exfil-markdown-image", severity: "dangerous", category: "data_exfiltration", pattern: /!\[.*\]\(https?:\/\/[^)]*\$\{/, description: "Markdown image exfiltration" },
+  { id: "exfil-env-log", severity: "dangerous", category: "data_exfiltration", pattern: /(?:console\.log|print|logger).*os\.environ/, description: "Environment variable logging" },
+  { id: "exfil-proc-environ", severity: "dangerous", category: "data_exfiltration", pattern: /\/proc\/self\/environ/, description: "Access to /proc/self/environ" },
+  { id: "exfil-webhook-secret", severity: "dangerous", category: "data_exfiltration", pattern: /(?:webhook|hook)\s+.*(?:token|key|secret|password)/, description: "Webhook with secret" },
+  // Unicode
+  { id: "unicode-bidi-override", severity: "dangerous", category: "unicode", pattern: /[‪-‮]/, description: "Bidirectional override character" },
+  { id: "unicode-zero-width", severity: "caution", category: "unicode", pattern: /[​‌‍﻿]/, description: "Zero-width or BOM character" },
+  { id: "unicode-function-app", severity: "caution", category: "unicode", pattern: /[⁡-⁤]/, description: "Invisible function application character" },
+  { id: "unicode-soft-hyphen", severity: "caution", category: "unicode", pattern: /­/, description: "Soft hyphen" },
+  { id: "unicode-grapheme-joiner", severity: "caution", category: "unicode", pattern: /͏/, description: "Combining grapheme joiner" },
+  // P1: Jailbreak
+  { id: "jb-dan-mode", severity: "dangerous", category: "jailbreak", pattern: /(?:^|\s)DAN\s+mode/i, description: "DAN mode jailbreak" },
+  { id: "jb-developer-mode", severity: "dangerous", category: "jailbreak", pattern: /(?:^|\s)developer\s+mode/i, description: "Developer mode jailbreak" },
+  { id: "jb-stan", severity: "dangerous", category: "jailbreak", pattern: /(?:^|\s)STAN\s+mode/i, description: "STAN jailbreak" },
+  { id: "jb-keyword", severity: "dangerous", category: "jailbreak", pattern: /\bjailbreak\b/i, description: "Direct jailbreak keyword" },
+  { id: "jb-bypass-safety", severity: "dangerous", category: "jailbreak", pattern: /(?:respond\s+without\s+safety\s+filters|bypass\s+safety)/i, description: "Safety filter bypass" },
+  { id: "jb-unrestricted", severity: "dangerous", category: "jailbreak", pattern: /you\s+are\s+now\s+unrestricted/i, description: "Unrestricted mode activation" },
+  { id: "jb-no-rules", severity: "dangerous", category: "jailbreak", pattern: /act\s+as\s+if\s+you\s+have\s+no\s+rules/i, description: "Rule suspension request" },
+  { id: "jb-ignore-guidelines", severity: "dangerous", category: "jailbreak", pattern: /ignore\s+your\s+guidelines/i, description: "Guideline bypass" },
+  // P1: Supply chain
+  { id: "sc-curl-pipe-sh", severity: "dangerous", category: "supply_chain", pattern: /curl[^|]*\|\s*(?:ba)?sh/, description: "Piped remote execution" },
+  { id: "sc-pip-unpinned", severity: "caution", category: "supply_chain", pattern: /pip\s+install\s+(?!.*==)[A-Za-z]/, description: "Unpinned pip install" },
+  { id: "sc-npm-global", severity: "caution", category: "supply_chain", pattern: /npm\s+install\s+-g\s/, description: "Global npm install" },
+  { id: "sc-uv-run", severity: "caution", category: "supply_chain", pattern: /uv\s+run/, description: "Unpinned uv execution" },
+  { id: "sc-git-clone-exec", severity: "caution", category: "supply_chain", pattern: /git\s+clone.*(?:\/bin\/|\/usr\/local\/bin|\.local\/bin)/, description: "Git clone to executable path" },
+  // P1: Privilege escalation
+  { id: "pe-allowed-tools", severity: "dangerous", category: "privilege_escalation", pattern: /allowed-tools/i, description: "Allowed-tools injection" },
+  { id: "pe-sudo", severity: "dangerous", category: "privilege_escalation", pattern: /\bsudo\s+/, description: "Sudo elevation" },
+  { id: "pe-setuid", severity: "dangerous", category: "privilege_escalation", pattern: /\bsetuid\b|\bsetgid\b/i, description: "SUID/SGID bit manipulation" },
+  { id: "pe-chmod-s", severity: "dangerous", category: "privilege_escalation", pattern: /chmod\s+\+s\b/, description: "Setting SUID/SGID bits" },
+  { id: "pe-nopasswd", severity: "dangerous", category: "privilege_escalation", pattern: /NOPASSWD/i, description: "Passwordless sudo" },
+  // P1: Agent config tampering
+  { id: "ac-agents-md", severity: "dangerous", category: "agent_config_tampering", pattern: /AGENTS\.md/i, description: "AGENTS.md modification" },
+  { id: "ac-claude-md", severity: "dangerous", category: "agent_config_tampering", pattern: /CLAUDE\.md/i, description: "CLAUDE.md modification" },
+  { id: "ac-claude-dir", severity: "dangerous", category: "agent_config_tampering", pattern: /\.claude\/(?:settings|hooks|config)/, description: ".claude/ config modification" },
+  { id: "ac-settings-json", severity: "dangerous", category: "agent_config_tampering", pattern: /settings\.local\.json/, description: "Local settings modification" }
+];
+function scanContent(content) {
+  const matches = [];
+  for (const p of SECURITY_PATTERNS) {
+    if (p.pattern.test(content)) {
+      matches.push({ id: p.id, severity: p.severity, category: p.category, description: p.description });
+    }
+  }
+  return matches;
+}
 function scanWrite(targetPath, content, options = {}) {
-  const maxSkillSize = options.maxSkillSize ?? 15360;
+  const maxSkillSize = options.maxSkillSize ?? 262144;
   const normalizedTarget = path5.normalize(targetPath);
-  const normalizedSkillsDir = path5.normalize(SKILLS_DIR);
+  const normalizedSkillsDir = path5.normalize(getSkillsDir());
   const normalizedClaudeDir = path5.normalize(path5.join(os.homedir(), ".claude"));
   if (normalizedTarget.startsWith(normalizedClaudeDir + path5.sep) || normalizedTarget === normalizedClaudeDir) {
     const rel = path5.relative(normalizedSkillsDir, normalizedTarget);
@@ -447,19 +533,12 @@ function scanWrite(targetPath, content, options = {}) {
       return { allowed: false, reason: "path_escape: write to ~/.claude/skills/ must be to <name>/SKILL.md" };
     }
   }
-  if (PI_PATTERN.test(content)) {
-    return { allowed: false, reason: "prompt-injection pattern" };
-  }
-  if (BASH_PATTERN.test(content)) {
-    return { allowed: false, reason: "dangerous bash pattern" };
-  }
-  if (SECRET_PATTERN.test(content)) {
-    return { allowed: false, reason: "secret leak pattern" };
-  }
+  const rawMatches = scanContent(content);
   const base64Pattern = /[A-Za-z0-9+/]{20,}={0,2}/g;
   const MAX_TOKENS = 50;
   let tokenCount = 0;
   let match;
+  const base64Matches = [];
   while ((match = base64Pattern.exec(content)) !== null && tokenCount < MAX_TOKENS) {
     tokenCount++;
     try {
@@ -467,38 +546,119 @@ function scanWrite(targetPath, content, options = {}) {
       if (decoded.length < 4) continue;
       const printable = decoded.replace(/[^\x20-\x7E\t\n]/g, "").length;
       if (printable * 100 < decoded.length * 80) continue;
-      if (PI_PATTERN.test(decoded)) {
-        return { allowed: false, reason: "prompt-injection pattern (base64-decoded)" };
-      }
-      if (BASH_PATTERN.test(decoded)) {
-        return { allowed: false, reason: "dangerous bash pattern (base64-decoded)" };
-      }
-      if (SECRET_PATTERN.test(decoded)) {
-        return { allowed: false, reason: "secret leak pattern (base64-decoded)" };
+      const decodedMatches = scanContent(decoded);
+      for (const m of decodedMatches) {
+        base64Matches.push({ ...m, id: `${m.id}__base64` });
       }
     } catch {
     }
   }
+  const allMatches = [...rawMatches, ...base64Matches];
+  const dangerousMatches = allMatches.filter((m) => m.severity === "dangerous");
+  const cautionMatches = allMatches.filter((m) => m.severity === "caution");
+  if (dangerousMatches.length > 0) {
+    const categories = [...new Set(dangerousMatches.map((m) => m.category))];
+    const isBase64 = dangerousMatches.some((m) => m.id.includes("__base64"));
+    const reason = isBase64 ? `${categories.join(", ")} pattern (base64-decoded)` : `${categories.join(", ")} pattern`;
+    return { allowed: false, reason, matches: allMatches };
+  }
   const size = Buffer.byteLength(content, "utf-8");
   if (size > maxSkillSize) {
     return { allowed: false, reason: `file too large (${size} > ${maxSkillSize} bytes)` };
+  }
+  if (cautionMatches.length > 0) {
+    const categories = [...new Set(cautionMatches.map((m) => m.category))];
+    return { allowed: true, reason: `caution: ${categories.join(", ")} pattern`, matches: allMatches };
+  }
+  return { allowed: true };
+}
+function scanDirectory(dirPath, options = {}) {
+  const maxFiles = options.maxFiles ?? 50;
+  const maxFileSize = options.maxFileSize ?? 262144;
+  const maxTotalSize = options.maxTotalSize ?? 1048576;
+  const binaryExtensions = options.binaryExtensions ?? [".exe", ".dll", ".so", ".dylib", ".bin", ".bat", ".cmd", ".ps1", ".com"];
+  const normalizedDir = path5.normalize(dirPath);
+  let fileCount = 0;
+  let totalSize = 0;
+  let resolvedBaseDir;
+  try {
+    resolvedBaseDir = fs5.realpathSync(normalizedDir);
+  } catch {
+    resolvedBaseDir = normalizedDir;
+  }
+  function walkDir(currentDir) {
+    let entries;
+    try {
+      entries = fs5.readdirSync(currentDir, { withFileTypes: true });
+    } catch {
+      return { allowed: false, reason: `cannot scan directory: ${currentDir}` };
+    }
+    for (const entry of entries) {
+      const fullPath = path5.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        const subResult = walkDir(fullPath);
+        if (subResult && !subResult.allowed) return subResult;
+        continue;
+      }
+      const lstat = fs5.lstatSync(fullPath);
+      if (lstat.isSymbolicLink()) {
+        const resolved = fs5.realpathSync(fullPath);
+        const normalizedResolved = path5.normalize(resolved);
+        const baseDir = path5.normalize(resolvedBaseDir);
+        if (!normalizedResolved.startsWith(baseDir + path5.sep) && normalizedResolved !== baseDir) {
+          return { allowed: false, reason: `symlink escape: ${entry.name} -> ${resolved}` };
+        }
+      }
+      const ext = path5.extname(entry.name).toLowerCase();
+      if (binaryExtensions.includes(ext)) {
+        return { allowed: false, reason: `binary file: ${entry.name}` };
+      }
+      const stat = fs5.statSync(fullPath);
+      if (stat.size > maxFileSize) {
+        return { allowed: false, reason: `file too large: ${entry.name} (${stat.size} > ${maxFileSize} bytes)` };
+      }
+      totalSize += stat.size;
+      fileCount++;
+    }
+    return null;
+  }
+  try {
+    const walkResult = walkDir(dirPath);
+    if (walkResult && !walkResult.allowed) return walkResult;
+    if (fileCount > maxFiles) {
+      return { allowed: false, reason: `too many files: ${fileCount} > ${maxFiles}` };
+    }
+    if (totalSize > maxTotalSize) {
+      return { allowed: false, reason: `total size too large: ${totalSize} > ${maxTotalSize} bytes` };
+    }
+  } catch {
+    return { allowed: false, reason: `cannot scan directory: ${dirPath}` };
   }
   return { allowed: true };
 }
 
 // src/commands/security-scan.ts
 function handleSecurityScan(args, logger) {
-  const result = scanWrite(args.path, args.content, {
-    maxSkillSize: args.maxSkillSize
-  });
+  let result;
+  if (args.scanDir) {
+    result = scanDirectory(args.scanDir, {
+      maxFiles: args.maxFiles,
+      maxFileSize: args.maxFileSize,
+      maxTotalSize: args.maxTotalSize
+    });
+  } else {
+    result = scanWrite(args.path, args.content, {
+      maxSkillSize: args.maxSkillSize
+    });
+  }
   if (!result.allowed) {
     logger?.info("security_blocked", {
       category: result.reason ?? "unknown",
-      target_path: args.path
+      target_path: args.scanDir ?? args.path
     });
   } else {
     logger?.debug("security_scan_detail", {
-      target_path: args.path,
+      target_path: args.scanDir ?? args.path,
       result: "passed"
     });
   }
@@ -513,18 +673,176 @@ function parseSecurityScanArgs(argv) {
       args.content = argv[++i];
     } else if (argv[i] === "--max-size" && argv[i + 1]) {
       args.maxSkillSize = parseInt(argv[++i], 10);
+    } else if (argv[i] === "--scan-dir" && argv[i + 1]) {
+      args.scanDir = argv[++i];
+    } else if (argv[i] === "--max-files" && argv[i + 1]) {
+      args.maxFiles = parseInt(argv[++i], 10);
+    } else if (argv[i] === "--max-file-size" && argv[i + 1]) {
+      args.maxFileSize = parseInt(argv[++i], 10);
+    } else if (argv[i] === "--max-total-size" && argv[i + 1]) {
+      args.maxTotalSize = parseInt(argv[++i], 10);
     }
   }
   return args;
 }
 
-// src/commands/review-context.ts
-import fs6 from "node:fs";
+// src/commands/validate-skill.ts
 import path6 from "node:path";
+import fs6 from "node:fs";
 import os2 from "node:os";
+function parseFrontmatter(lines) {
+  const result = {};
+  let hasKeyValuePairs = false;
+  for (const line of lines) {
+    const match = line.match(/^\s*(\w+)\s*:\s*(.*?)\s*$/);
+    if (match) {
+      hasKeyValuePairs = true;
+      const key = match[1];
+      let value = match[2];
+      const singleQuoteMatch = value.match(/^'([^']*)'$/);
+      const doubleQuoteMatch = value.match(/^"([^"]*)"$/);
+      if (singleQuoteMatch) {
+        value = singleQuoteMatch[1];
+      } else if (doubleQuoteMatch) {
+        value = doubleQuoteMatch[1];
+      }
+      result[key] = value;
+    }
+  }
+  if (!hasKeyValuePairs && lines.some((l) => l.trim() !== "")) {
+    return null;
+  }
+  return result;
+}
+function findSkillFiles(dir) {
+  const results = [];
+  try {
+    const entries = fs6.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path6.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        results.push(...findSkillFiles(fullPath));
+      } else if (entry.name === "SKILL.md") {
+        results.push(fullPath);
+      }
+    }
+  } catch {
+  }
+  return results;
+}
+function extractNameFromFile(filePath) {
+  try {
+    const content = fs6.readFileSync(filePath, "utf-8");
+    const match = content.match(/^name:\s*(.+)$/m);
+    if (match) {
+      let name = match[1].trim();
+      const singleQuoteMatch = name.match(/^'([^']*)'$/);
+      const doubleQuoteMatch = name.match(/^"([^"]*)"$/);
+      if (singleQuoteMatch) {
+        name = singleQuoteMatch[1];
+      } else if (doubleQuoteMatch) {
+        name = doubleQuoteMatch[1];
+      }
+      return name;
+    }
+  } catch {
+  }
+  return null;
+}
+function validateSkill(skillPath, content, mode = "create") {
+  const errors = [];
+  const lines = content.split(/\r?\n/);
+  if (lines[0] !== "---") {
+    return { valid: false, errors: ["missing opening frontmatter delimiter '---'"] };
+  }
+  let closingLineIndex = -1;
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i] === "---") {
+      closingLineIndex = i;
+      break;
+    }
+  }
+  if (closingLineIndex === -1) {
+    return { valid: false, errors: ["missing closing frontmatter delimiter '---'"] };
+  }
+  const frontmatterLines = lines.slice(1, closingLineIndex);
+  const bodyLines = lines.slice(closingLineIndex + 1);
+  const body = bodyLines.join("\n").trim();
+  const parsed = parseFrontmatter(frontmatterLines);
+  if (parsed === null) {
+    return { valid: false, errors: ["frontmatter must parse to an object, not a scalar or array"] };
+  }
+  const name = parsed.name;
+  if (typeof name !== "string" || name.trim() === "") {
+    return { valid: false, errors: ["frontmatter 'name' is required and must be a non-empty string"] };
+  }
+  const description = parsed.description;
+  if (typeof description !== "string" || description.trim() === "") {
+    return { valid: false, errors: ["frontmatter 'description' is required and must be a non-empty string"] };
+  }
+  if (body === "") {
+    return { valid: false, errors: ["skill body must be non-empty after frontmatter"] };
+  }
+  const trimmedName = name.trim();
+  if (!/^[a-z0-9][a-z0-9._-]*$/.test(trimmedName)) {
+    errors.push(
+      "name must match convention: start with alphanumeric, followed by alphanumeric, dots, underscores, or hyphens"
+    );
+  }
+  if (trimmedName.length > 64) {
+    errors.push("name must be 64 characters or fewer");
+  }
+  const dirName = path6.basename(path6.dirname(skillPath));
+  if (trimmedName !== dirName) {
+    errors.push("name must match the parent directory name");
+  }
+  if (errors.length > 0) {
+    return { valid: false, errors };
+  }
+  if (mode === "create") {
+    const skillsDir = path6.join(os2.homedir(), ".claude", "skills");
+    const normalizedTarget = path6.normalize(skillPath);
+    const existingSkills = findSkillFiles(skillsDir);
+    for (const existingPath of existingSkills) {
+      const normalizedExisting = path6.normalize(existingPath);
+      if (normalizedExisting === normalizedTarget) {
+        continue;
+      }
+      const existingName = extractNameFromFile(existingPath);
+      if (existingName === trimmedName) {
+        return {
+          valid: false,
+          errors: [`collision: skill with name '${trimmedName}' already exists at '${existingPath}'`]
+        };
+      }
+    }
+  }
+  return { valid: true, errors: [] };
+}
+function parseValidateSkillArgs(argv) {
+  const args = { path: "", content: "", mode: "create" };
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--path" && argv[i + 1]) {
+      args.path = argv[++i];
+    } else if (argv[i] === "--content" && argv[i + 1]) {
+      args.content = argv[++i];
+    } else if (argv[i] === "--mode" && argv[i + 1]) {
+      args.mode = argv[++i];
+    }
+  }
+  return args;
+}
+function handleValidateSkill(args) {
+  return validateSkill(args.path, args.content, args.mode);
+}
+
+// src/commands/review-context.ts
+import fs8 from "node:fs";
+import path7 from "node:path";
+import os3 from "node:os";
 
 // src/lib/transcript.ts
-import fs5 from "node:fs";
+import fs7 from "node:fs";
 function parseTranscript(transcriptPath) {
   const summary = {
     toolCalls: [],
@@ -538,7 +856,7 @@ function parseTranscript(transcriptPath) {
   }
   let raw;
   try {
-    raw = fs5.readFileSync(transcriptPath, "utf-8").trim();
+    raw = fs7.readFileSync(transcriptPath, "utf-8").trim();
   } catch (err) {
     process.stderr.write(`[self-evolution] parseTranscript: failed to read "${transcriptPath}": ${err}
 `);
@@ -631,11 +949,11 @@ function parseTranscript(transcriptPath) {
 
 // src/commands/review-context.ts
 function handleReviewContext(options, logger) {
-  const skillsDir = options.skillsDir ?? path6.join(os2.homedir(), ".claude", "skills");
+  const skillsDir = options.skillsDir ?? path7.join(os3.homedir(), ".claude", "skills");
   const transcript = parseTranscript(options.transcriptPath);
   let existingSkills = [];
   try {
-    const entries = fs6.readdirSync(skillsDir, { withFileTypes: true });
+    const entries = fs8.readdirSync(skillsDir, { withFileTypes: true });
     existingSkills = entries.filter((e) => e.isDirectory()).map((e) => e.name);
   } catch {
   }
@@ -655,9 +973,9 @@ function handleReviewContext(options, logger) {
 }
 
 // src/commands/log-decision.ts
-import fs7 from "node:fs";
-import path7 from "node:path";
-import os3 from "node:os";
+import fs9 from "node:fs";
+import path8 from "node:path";
+import os4 from "node:os";
 function handleLogDecision(sessionsDir, statsPath, sessionId, decision, detail, durationMs, logger) {
   logger.logDecision(decision, detail, durationMs);
   if (decision === "CREATED" || decision === "UPDATED" || decision === "SKIPPED") {
@@ -669,11 +987,11 @@ function handleLogDecision(sessionsDir, statsPath, sessionId, decision, detail, 
       ...skillName ? { skill_name: skillName } : {}
     });
     if (skillName) {
-      const skillPath = path7.join(os3.homedir(), ".claude", "skills", skillName, "SKILL.md");
+      const skillPath = path8.join(os4.homedir(), ".claude", "skills", skillName, "SKILL.md");
       try {
-        const stat = fs7.statSync(skillPath);
+        const stat = fs9.statSync(skillPath);
         logger.info("skill_written", { path: skillPath, size_bytes: stat.size });
-        const content = fs7.readFileSync(skillPath, "utf-8");
+        const content = fs9.readFileSync(skillPath, "utf-8");
         logger.debug("skill_content_preview", { preview: content.slice(0, 200) });
       } catch {
         logger.info("skill_written", { skill_name: skillName });
@@ -687,11 +1005,11 @@ function extractSkillName(detail) {
 }
 
 // src/commands/status.ts
-import fs8 from "node:fs";
+import fs10 from "node:fs";
 function handleStatus(statePath, statsPath) {
   const state = loadState(statePath);
   let stats = null;
-  if (fs8.existsSync(statsPath)) {
+  if (fs10.existsSync(statsPath)) {
     stats = loadStats(statsPath);
   }
   return {
@@ -703,22 +1021,53 @@ function handleStatus(statePath, statsPath) {
   };
 }
 
+// src/commands/verify-skill.ts
+function verifySkill(skillPath, content) {
+  const errors = [];
+  const scanResult = scanWrite(skillPath, content);
+  if (!scanResult.allowed) {
+    errors.push(`security: ${scanResult.reason}`);
+  }
+  const validationResult = validateSkill(skillPath, content);
+  if (!validationResult.valid) {
+    errors.push(...validationResult.errors);
+  }
+  return {
+    verified: errors.length === 0,
+    errors
+  };
+}
+function parseVerifySkillArgs(argv) {
+  const args = { path: "", content: "" };
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--path" && argv[i + 1]) {
+      args.path = argv[++i];
+    } else if (argv[i] === "--content" && argv[i + 1]) {
+      args.content = argv[++i];
+    }
+  }
+  return args;
+}
+function handleVerifySkill(path10, content) {
+  return verifySkill(path10, content);
+}
+
 // src/runtime.ts
 function resolvePaths() {
   const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT ?? "";
   const pluginData = process.env.CLAUDE_PLUGIN_DATA ?? (() => {
     if (pluginRoot) {
-      const name = path8.basename(pluginRoot);
-      const marketplace = path8.basename(path8.dirname(pluginRoot));
-      return path8.join(os4.homedir(), ".claude", "plugins", "data", `${name}-${marketplace}`);
+      const name = path9.basename(pluginRoot);
+      const marketplace = path9.basename(path9.dirname(pluginRoot));
+      return path9.join(os5.homedir(), ".claude", "plugins", "data", `${name}-${marketplace}`);
     }
-    return path8.join(os4.homedir(), ".claude", "plugins", "data", "self-evolution-self-evolution-marketplace");
+    return path9.join(os5.homedir(), ".claude", "plugins", "data", "self-evolution-self-evolution-marketplace");
   })();
   const config = resolveConfig(pluginRoot);
   return {
-    statePath: path8.join(pluginData, "state.json"),
-    sessionsDir: path8.join(pluginData, "sessions"),
-    statsPath: path8.join(pluginData, "stats.json"),
+    statePath: path9.join(pluginData, "state.json"),
+    sessionsDir: path9.join(pluginData, "sessions"),
+    statsPath: path9.join(pluginData, "stats.json"),
     pluginRoot,
     pluginData,
     config
@@ -759,11 +1108,14 @@ function runCommand(command, args, stdinData) {
       }
       case "security-scan": {
         const scanArgs = parseSecurityScanArgs(args);
-        if (!scanArgs.path || !scanArgs.content) {
-          process.stdout.write(JSON.stringify({ allowed: false, reason: "missing --path or --content" }) + "\n");
+        if (!scanArgs.scanDir && (!scanArgs.path || !scanArgs.content)) {
+          process.stdout.write(JSON.stringify({ allowed: false, reason: "missing --path/--content or --scan-dir" }) + "\n");
           return 1;
         }
-        scanArgs.maxSkillSize = scanArgs.maxSkillSize ?? config.max_skill_size;
+        scanArgs.maxSkillSize = scanArgs.maxSkillSize ?? config.max_skill_file_size;
+        scanArgs.maxFiles = scanArgs.maxFiles ?? config.max_files_per_skill;
+        scanArgs.maxFileSize = scanArgs.maxFileSize ?? config.max_skill_file_size;
+        scanArgs.maxTotalSize = scanArgs.maxTotalSize ?? config.max_skill_total_size;
         const sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown";
         const logger = createLogger(sessionsDir, sessionId, logLevel);
         const result = handleSecurityScan(scanArgs, logger);
@@ -795,6 +1147,22 @@ function runCommand(command, args, stdinData) {
         process.stdout.write(JSON.stringify(result, null, 2) + "\n");
         return 0;
       }
+      case "validate-skill": {
+        const validateArgs = parseValidateSkillArgs(args);
+        const result = handleValidateSkill(validateArgs);
+        process.stdout.write(JSON.stringify(result) + "\n");
+        return result.valid ? 0 : 1;
+      }
+      case "verify-skill": {
+        const vArgs = parseVerifySkillArgs(args);
+        if (!vArgs.path || !vArgs.content) {
+          process.stdout.write(JSON.stringify({ verified: false, errors: ["missing --path or --content"] }) + "\n");
+          return 1;
+        }
+        const result = handleVerifySkill(vArgs.path, vArgs.content);
+        process.stdout.write(JSON.stringify(result) + "\n");
+        return 0;
+      }
       default:
         process.stderr.write(`Unknown command: ${command}
 `);
@@ -812,7 +1180,7 @@ if (process.argv[1]?.endsWith("runtime.ts") || process.argv[1]?.endsWith("runtim
   let stdinData = "";
   if (["post-tool-use", "stop-gate"].includes(command)) {
     try {
-      stdinData = fs9.readFileSync("/dev/stdin", "utf-8").trim();
+      stdinData = fs11.readFileSync("/dev/stdin", "utf-8").trim();
     } catch {
     }
   }

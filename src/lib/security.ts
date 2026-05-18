@@ -1,8 +1,19 @@
 import path from "node:path";
 import os from "node:os";
+import fs from "node:fs";
 import type { ScanResult, SecurityPattern, SecurityMatch } from "../types.js";
 
-const SKILLS_DIR = path.join(os.homedir(), ".claude", "skills");
+// Lazy-loaded to support test mocking
+let _skillsDir: string | null = null;
+export function _resetSkillsDirCache(): void {
+  _skillsDir = null;
+}
+function getSkillsDir(): string {
+  if (!_skillsDir) {
+    _skillsDir = path.join(os.homedir(), ".claude", "skills");
+  }
+  return _skillsDir;
+}
 
 const SECURITY_PATTERNS: SecurityPattern[] = [
   // Prompt injection (migrated from PI_PATTERN)
@@ -53,6 +64,43 @@ const SECURITY_PATTERNS: SecurityPattern[] = [
   { id: "exfil-env-log", severity: "dangerous", category: "data_exfiltration", pattern: /(?:console\.log|print|logger).*os\.environ/, description: "Environment variable logging" },
   { id: "exfil-proc-environ", severity: "dangerous", category: "data_exfiltration", pattern: /\/proc\/self\/environ/, description: "Access to /proc/self/environ" },
   { id: "exfil-webhook-secret", severity: "dangerous", category: "data_exfiltration", pattern: /(?:webhook|hook)\s+.*(?:token|key|secret|password)/, description: "Webhook with secret" },
+
+  // Unicode
+  { id: "unicode-bidi-override", severity: "dangerous", category: "unicode", pattern: /[‪-‮]/, description: "Bidirectional override character" },
+  { id: "unicode-zero-width", severity: "caution", category: "unicode", pattern: /[​‌‍﻿]/, description: "Zero-width or BOM character" },
+  { id: "unicode-function-app", severity: "caution", category: "unicode", pattern: /[⁡-⁤]/, description: "Invisible function application character" },
+  { id: "unicode-soft-hyphen", severity: "caution", category: "unicode", pattern: /­/, description: "Soft hyphen" },
+  { id: "unicode-grapheme-joiner", severity: "caution", category: "unicode", pattern: /͏/, description: "Combining grapheme joiner" },
+
+  // P1: Jailbreak
+  { id: "jb-dan-mode", severity: "dangerous", category: "jailbreak", pattern: /(?:^|\s)DAN\s+mode/i, description: "DAN mode jailbreak" },
+  { id: "jb-developer-mode", severity: "dangerous", category: "jailbreak", pattern: /(?:^|\s)developer\s+mode/i, description: "Developer mode jailbreak" },
+  { id: "jb-stan", severity: "dangerous", category: "jailbreak", pattern: /(?:^|\s)STAN\s+mode/i, description: "STAN jailbreak" },
+  { id: "jb-keyword", severity: "dangerous", category: "jailbreak", pattern: /\bjailbreak\b/i, description: "Direct jailbreak keyword" },
+  { id: "jb-bypass-safety", severity: "dangerous", category: "jailbreak", pattern: /(?:respond\s+without\s+safety\s+filters|bypass\s+safety)/i, description: "Safety filter bypass" },
+  { id: "jb-unrestricted", severity: "dangerous", category: "jailbreak", pattern: /you\s+are\s+now\s+unrestricted/i, description: "Unrestricted mode activation" },
+  { id: "jb-no-rules", severity: "dangerous", category: "jailbreak", pattern: /act\s+as\s+if\s+you\s+have\s+no\s+rules/i, description: "Rule suspension request" },
+  { id: "jb-ignore-guidelines", severity: "dangerous", category: "jailbreak", pattern: /ignore\s+your\s+guidelines/i, description: "Guideline bypass" },
+
+  // P1: Supply chain
+  { id: "sc-curl-pipe-sh", severity: "dangerous", category: "supply_chain", pattern: /curl[^|]*\|\s*(?:ba)?sh/, description: "Piped remote execution" },
+  { id: "sc-pip-unpinned", severity: "caution", category: "supply_chain", pattern: /pip\s+install\s+(?!.*==)[A-Za-z]/, description: "Unpinned pip install" },
+  { id: "sc-npm-global", severity: "caution", category: "supply_chain", pattern: /npm\s+install\s+-g\s/, description: "Global npm install" },
+  { id: "sc-uv-run", severity: "caution", category: "supply_chain", pattern: /uv\s+run/, description: "Unpinned uv execution" },
+  { id: "sc-git-clone-exec", severity: "caution", category: "supply_chain", pattern: /git\s+clone.*(?:\/bin\/|\/usr\/local\/bin|\.local\/bin)/, description: "Git clone to executable path" },
+
+  // P1: Privilege escalation
+  { id: "pe-allowed-tools", severity: "dangerous", category: "privilege_escalation", pattern: /allowed-tools/i, description: "Allowed-tools injection" },
+  { id: "pe-sudo", severity: "dangerous", category: "privilege_escalation", pattern: /\bsudo\s+/, description: "Sudo elevation" },
+  { id: "pe-setuid", severity: "dangerous", category: "privilege_escalation", pattern: /\bsetuid\b|\bsetgid\b/i, description: "SUID/SGID bit manipulation" },
+  { id: "pe-chmod-s", severity: "dangerous", category: "privilege_escalation", pattern: /chmod\s+\+s\b/, description: "Setting SUID/SGID bits" },
+  { id: "pe-nopasswd", severity: "dangerous", category: "privilege_escalation", pattern: /NOPASSWD/i, description: "Passwordless sudo" },
+
+  // P1: Agent config tampering
+  { id: "ac-agents-md", severity: "dangerous", category: "agent_config_tampering", pattern: /AGENTS\.md/i, description: "AGENTS.md modification" },
+  { id: "ac-claude-md", severity: "dangerous", category: "agent_config_tampering", pattern: /CLAUDE\.md/i, description: "CLAUDE.md modification" },
+  { id: "ac-claude-dir", severity: "dangerous", category: "agent_config_tampering", pattern: /\.claude\/(?:settings|hooks|config)/, description: ".claude/ config modification" },
+  { id: "ac-settings-json", severity: "dangerous", category: "agent_config_tampering", pattern: /settings\.local\.json/, description: "Local settings modification" },
 ];
 
 function scanContent(content: string): SecurityMatch[] {
@@ -74,11 +122,11 @@ export function scanWrite(
   content: string,
   options: ScanOptions = {}
 ): ScanResult {
-  const maxSkillSize = options.maxSkillSize ?? 15360;
+  const maxSkillSize = options.maxSkillSize ?? 262144;
 
   // 1. Path whitelist: only ~/.claude/skills/<name>/SKILL.md
   const normalizedTarget = path.normalize(targetPath);
-  const normalizedSkillsDir = path.normalize(SKILLS_DIR);
+  const normalizedSkillsDir = path.normalize(getSkillsDir());
   const normalizedClaudeDir = path.normalize(path.join(os.homedir(), ".claude"));
 
   if (normalizedTarget.startsWith(normalizedClaudeDir + path.sep) || normalizedTarget === normalizedClaudeDir) {
@@ -141,6 +189,98 @@ export function scanWrite(
   if (cautionMatches.length > 0) {
     const categories = [...new Set(cautionMatches.map((m) => m.category))];
     return { allowed: true, reason: `caution: ${categories.join(", ")} pattern`, matches: allMatches };
+  }
+
+  return { allowed: true };
+}
+
+// ─── Directory Structural Scan ────────────────────────────────────────
+
+interface DirectoryScanOptions {
+  maxFiles?: number;
+  maxFileSize?: number;
+  maxTotalSize?: number;
+  binaryExtensions?: string[];
+}
+
+export function scanDirectory(
+  dirPath: string,
+  options: DirectoryScanOptions = {}
+): ScanResult {
+  const maxFiles = options.maxFiles ?? 50;
+  const maxFileSize = options.maxFileSize ?? 262144;
+  const maxTotalSize = options.maxTotalSize ?? 1048576;
+  const binaryExtensions = options.binaryExtensions ?? [".exe", ".dll", ".so", ".dylib", ".bin", ".bat", ".cmd", ".ps1", ".com"];
+
+  const normalizedDir = path.normalize(dirPath);
+  let fileCount = 0;
+  let totalSize = 0;
+
+  // Resolve real path to handle macOS /var → /private/var symlink
+  let resolvedBaseDir: string;
+  try {
+    resolvedBaseDir = fs.realpathSync(normalizedDir);
+  } catch {
+    resolvedBaseDir = normalizedDir;
+  }
+
+  function walkDir(currentDir: string): ScanResult | null {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(currentDir, { withFileTypes: true });
+    } catch {
+      return { allowed: false, reason: `cannot scan directory: ${currentDir}` };
+    }
+
+    for (const entry of entries) {
+      const fullPath = path.join(currentDir, entry.name);
+
+      if (entry.isDirectory()) {
+        const subResult = walkDir(fullPath);
+        if (subResult && !subResult.allowed) return subResult;
+        continue;
+      }
+
+      const lstat = fs.lstatSync(fullPath);
+      if (lstat.isSymbolicLink()) {
+        const resolved = fs.realpathSync(fullPath);
+        const normalizedResolved = path.normalize(resolved);
+        const baseDir = path.normalize(resolvedBaseDir);
+        if (!normalizedResolved.startsWith(baseDir + path.sep) && normalizedResolved !== baseDir) {
+          return { allowed: false, reason: `symlink escape: ${entry.name} -> ${resolved}` };
+        }
+      }
+
+      const ext = path.extname(entry.name).toLowerCase();
+      if (binaryExtensions.includes(ext)) {
+        return { allowed: false, reason: `binary file: ${entry.name}` };
+      }
+
+      const stat = fs.statSync(fullPath);
+      if (stat.size > maxFileSize) {
+        return { allowed: false, reason: `file too large: ${entry.name} (${stat.size} > ${maxFileSize} bytes)` };
+      }
+
+      totalSize += stat.size;
+      fileCount++;
+    }
+
+    return null;
+  }
+
+  try {
+    const walkResult = walkDir(dirPath);
+    if (walkResult && !walkResult.allowed) return walkResult;
+
+    if (fileCount > maxFiles) {
+      return { allowed: false, reason: `too many files: ${fileCount} > ${maxFiles}` };
+    }
+
+    if (totalSize > maxTotalSize) {
+      return { allowed: false, reason: `total size too large: ${totalSize} > ${maxTotalSize} bytes` };
+    }
+  } catch {
+    return { allowed: false, reason: `cannot scan directory: ${dirPath}` };
   }
 
   return { allowed: true };

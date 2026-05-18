@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { loadState, saveState, incrementCount, consumePending, getOrCreateSession, addJob, updateJob, initSessionState, loadSessionState, saveSessionState, updateSessionResult, loadStats, saveStats, updateStats } from "../lib/state.js";
+import { loadState, saveState, incrementCount, resetCount, consumePending, getOrCreateSession, addJob, updateJob, initSessionState, loadSessionState, saveSessionState, updateSessionResult, loadStats, saveStats, updateStats } from "../lib/state.js";
 import type { State, Job, SessionStateFull, Stats } from "../types.js";
 
 let tmpDir: string;
@@ -64,6 +64,24 @@ describe("state", () => {
     const state2 = loadState(statePath);
     expect(state2.sessions["s1"].count).toBe(0);
     expect(state2.sessions["s1"].pending_review).toBe(true);
+  });
+
+  it("resetCount sets session count to 0", () => {
+    incrementCount(statePath, "s1", 10);
+    incrementCount(statePath, "s1", 10);
+    const state = loadState(statePath);
+    expect(state.sessions["s1"].count).toBe(2);
+    resetCount(statePath, "s1");
+    const stateAfter = loadState(statePath);
+    expect(stateAfter.sessions["s1"].count).toBe(0);
+    expect(stateAfter.sessions["s1"].pending_review).toBe(false);
+  });
+
+  it("resetCount creates session if not exists", () => {
+    resetCount(statePath, "s-new");
+    const state = loadState(statePath);
+    expect(state.sessions["s-new"].count).toBe(0);
+    expect(state.sessions["s-new"].pending_review).toBe(false);
   });
 
   it("consumePending returns true and clears flag when pending", () => {

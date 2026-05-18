@@ -8,9 +8,11 @@ import { handleSessionStart } from "./commands/session-start.js";
 import { handlePostToolUse } from "./commands/post-tool-use.js";
 import { handleStopGate } from "./commands/stop-gate.js";
 import { handleSecurityScan, parseSecurityScanArgs } from "./commands/security-scan.js";
+import { handleValidateSkill, parseValidateSkillArgs } from "./commands/validate-skill.js";
 import { handleReviewContext } from "./commands/review-context.js";
 import { handleLogDecision } from "./commands/log-decision.js";
 import { handleStatus } from "./commands/status.js";
+import { handleVerifySkill, parseVerifySkillArgs } from "./commands/verify-skill.js";
 
 function resolvePaths(): { statePath: string; sessionsDir: string; statsPath: string; pluginRoot: string; pluginData: string; config: Config } {
   const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT ?? "";
@@ -65,6 +67,7 @@ export function runCommand(command: string, args: string[], stdinData: string): 
           pluginRoot,
           pluginData,
           reviewModel: config.review_model,
+          reviewMaxTurns: config.review_max_turns,
           platform: config.platform,
         }, logger);
         return 0;
@@ -72,11 +75,14 @@ export function runCommand(command: string, args: string[], stdinData: string): 
 
       case "security-scan": {
         const scanArgs = parseSecurityScanArgs(args);
-        if (!scanArgs.path || !scanArgs.content) {
-          process.stdout.write(JSON.stringify({ allowed: false, reason: "missing --path or --content" }) + "\n");
+        if (!scanArgs.scanDir && (!scanArgs.path || !scanArgs.content)) {
+          process.stdout.write(JSON.stringify({ allowed: false, reason: "missing --path/--content or --scan-dir" }) + "\n");
           return 1;
         }
-        scanArgs.maxSkillSize = scanArgs.maxSkillSize ?? config.max_skill_size;
+        scanArgs.maxSkillSize = scanArgs.maxSkillSize ?? config.max_skill_file_size;
+        scanArgs.maxFiles = scanArgs.maxFiles ?? config.max_files_per_skill;
+        scanArgs.maxFileSize = scanArgs.maxFileSize ?? config.max_skill_file_size;
+        scanArgs.maxTotalSize = scanArgs.maxTotalSize ?? config.max_skill_total_size;
         const sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown";
         const logger = createLogger(sessionsDir, sessionId, logLevel);
         const result = handleSecurityScan(scanArgs, logger);
@@ -109,6 +115,28 @@ export function runCommand(command: string, args: string[], stdinData: string): 
       case "status": {
         const result = handleStatus(statePath, statsPath);
         process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+        return 0;
+      }
+
+      case "validate-skill": {
+        const validateArgs = parseValidateSkillArgs(args);
+        if (!validateArgs.path || !validateArgs.content) {
+          process.stdout.write(JSON.stringify({ valid: false, errors: ["missing --path or --content"] }) + "\n");
+          return 1;
+        }
+        const result = handleValidateSkill(validateArgs);
+        process.stdout.write(JSON.stringify(result) + "\n");
+        return result.valid ? 0 : 1;
+      }
+
+      case "verify-skill": {
+        const vArgs = parseVerifySkillArgs(args);
+        if (!vArgs.path || !vArgs.content) {
+          process.stdout.write(JSON.stringify({ verified: false, errors: ["missing --path or --content"] }) + "\n");
+          return 1;
+        }
+        const result = handleVerifySkill(vArgs.path, vArgs.content);
+        process.stdout.write(JSON.stringify(result) + "\n");
         return 0;
       }
 

@@ -13,6 +13,7 @@ interface StopGateOptions {
   pluginRoot: string;
   pluginData: string;
   reviewModel?: string;
+  reviewMaxTurns?: number;
   platform?: string;
 }
 
@@ -25,6 +26,9 @@ export function handleStopGate(
   logger: Logger
 ): StopGateResult {
   if (input.stop_hook_active) {
+    return { action: "allow", spawned: false };
+  }
+  if (process.env.SELF_EVOLUTION_REVIEW_MODE === "1") {
     return { action: "allow", spawned: false };
   }
   if (!input.session_id || !input.transcript_path) {
@@ -44,6 +48,7 @@ export function handleStopGate(
       pluginRoot: options.pluginRoot,
       pluginData: options.pluginData,
       reviewModel: options.reviewModel,
+      reviewMaxTurns: options.reviewMaxTurns,
     });
 
     jobPromise.then((job: Job) => {

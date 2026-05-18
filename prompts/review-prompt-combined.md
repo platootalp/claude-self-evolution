@@ -4,7 +4,16 @@ Session: ${SELF_EVOLUTION_SESSION_ID}
 Plugin Root: ${CLAUDE_PLUGIN_ROOT}
 Plugin Data: ${CLAUDE_PLUGIN_DATA}
 
-Your task:
+Your task is to evaluate whether the conversation contains a **reusable skill worth creating** or an **existing skill worth updating**.
+
+Focus on these signals:
+- Was a **non-trivial approach** used to complete a task?
+- Did the task require **trial and error** or changing course?
+- Did the **user expect or desire a different method or outcome**?
+- Does an existing skill contain **outdated or incorrect** information?
+- Are there **missing steps, traps, or edge cases** in an existing skill?
+
+Steps:
 1. Run: node "${CLAUDE_PLUGIN_ROOT}/dist/runtime.mjs" review-context "${SELF_EVOLUTION_TRANSCRIPT_PATH}"
    Returns transcript summary and existing skills.
 

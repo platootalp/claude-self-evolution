@@ -48,6 +48,19 @@ export function incrementCount(
   return state.sessions[sessionId].count;
 }
 
+export function resetCount(
+  statePath: string,
+  sessionId: string
+): void {
+  const state = loadState(statePath);
+  if (!state.sessions[sessionId]) {
+    state.sessions[sessionId] = { count: 0, pending_review: false };
+  }
+  state.sessions[sessionId].count = 0;
+  state.sessions[sessionId].pending_review = false;
+  saveState(statePath, state);
+}
+
 export function consumePending(
   statePath: string,
   sessionId: string

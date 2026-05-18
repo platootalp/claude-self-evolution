@@ -15,8 +15,18 @@ export function handleLogDecision(
 ): void {
   logger.logDecision(decision, detail, durationMs);
 
+  const skillName = decision !== "SKIPPED" ? extractSkillName(detail) : undefined;
+
+  // Log review summary event
   if (decision === "CREATED" || decision === "UPDATED" || decision === "SKIPPED") {
-    const skillName = decision !== "SKIPPED" ? extractSkillName(detail) : undefined;
+    logger.info("review_summary", {
+      action: decision,
+      ...(skillName ? { name: skillName } : {}),
+      rationale: detail,
+    });
+  }
+
+  if (decision === "CREATED" || decision === "UPDATED" || decision === "SKIPPED") {
     updateStats(statsPath, decision as "CREATED" | "UPDATED" | "SKIPPED", detail, sessionId, skillName);
     updateSessionResult(sessionsDir, sessionId, {
       review_decision: decision as "CREATED" | "UPDATED" | "SKIPPED",

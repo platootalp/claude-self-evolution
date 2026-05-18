@@ -23,6 +23,28 @@ afterEach(() => {
 });
 
 describe("handleStopGate", () => {
+  it("returns allow without spawn when SELF_EVOLUTION_REVIEW_MODE is set", () => {
+    const originalEnv = process.env.SELF_EVOLUTION_REVIEW_MODE;
+    process.env.SELF_EVOLUTION_REVIEW_MODE = "1";
+    incrementCount(statePath, "s1", 1);
+    try {
+      const logger = createLogger(sessionsDir, sessionId, "info");
+      const result = handleStopGate(statePath, sessionsDir, sessionId, {
+        session_id: "s1",
+        transcript_path: "/tmp/transcript.jsonl",
+        stop_hook_active: false,
+      }, { pluginRoot: "/tmp", pluginData: tmpDir }, logger);
+      expect(result.action).toBe("allow");
+      expect(result.spawned).toBe(false);
+    } finally {
+      if (originalEnv === undefined) {
+        delete process.env.SELF_EVOLUTION_REVIEW_MODE;
+      } else {
+        process.env.SELF_EVOLUTION_REVIEW_MODE = originalEnv;
+      }
+    }
+  });
+
   it("returns allow when stop_hook_active=true", () => {
     const logger = createLogger(sessionsDir, sessionId, "info");
     const result = handleStopGate(statePath, sessionsDir, sessionId, {

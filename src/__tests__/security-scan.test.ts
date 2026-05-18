@@ -41,6 +41,18 @@ describe("parseSecurityScanArgs", () => {
     expect(args.path).toBe("");
     expect(args.content).toBe("");
   });
+
+  it("parses --scan-dir flag", () => {
+    const args = parseSecurityScanArgs(["--scan-dir", "/skills/my-skill"]);
+    expect(args.scanDir).toBe("/skills/my-skill");
+  });
+
+  it("parses --max-files and --max-file-size and --max-total-size", () => {
+    const args = parseSecurityScanArgs(["--max-files", "25", "--max-file-size", "100000", "--max-total-size", "500000"]);
+    expect(args.maxFiles).toBe(25);
+    expect(args.maxFileSize).toBe(100000);
+    expect(args.maxTotalSize).toBe(500000);
+  });
 });
 
 describe("handleSecurityScan with logging", () => {

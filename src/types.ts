@@ -26,6 +26,22 @@ export interface State {
 export interface ScanResult {
   allowed: boolean;
   reason?: string;
+  matches?: SecurityMatch[];
+}
+
+export interface SecurityPattern {
+  id: string;
+  severity: "dangerous" | "caution" | "safe";
+  category: string;
+  pattern: RegExp;
+  description: string;
+}
+
+export interface SecurityMatch {
+  id: string;
+  severity: "dangerous" | "caution" | "safe";
+  category: string;
+  description: string;
 }
 
 // ─── Transcript ─────────────────────────────────────────────────────
@@ -67,6 +83,7 @@ export interface SpawnOptions {
   pluginRoot: string;
   pluginData: string;
   reviewModel?: string;
+  reviewMaxTurns?: number;
 }
 
 // ─── Logging ─────────────────────────────────────────────────────────
