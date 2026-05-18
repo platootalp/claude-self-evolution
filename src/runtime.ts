@@ -12,6 +12,7 @@ import { handleValidateSkill, parseValidateSkillArgs } from "./commands/validate
 import { handleReviewContext } from "./commands/review-context.js";
 import { handleLogDecision } from "./commands/log-decision.js";
 import { handleStatus } from "./commands/status.js";
+import { handleVerifySkill, parseVerifySkillArgs } from "./commands/verify-skill.js";
 
 function resolvePaths(): { statePath: string; sessionsDir: string; statsPath: string; pluginRoot: string; pluginData: string; config: Config } {
   const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT ?? "";
@@ -122,6 +123,17 @@ export function runCommand(command: string, args: string[], stdinData: string): 
         const result = handleValidateSkill(validateArgs);
         process.stdout.write(JSON.stringify(result) + "\n");
         return result.valid ? 0 : 1;
+      }
+
+      case "verify-skill": {
+        const vArgs = parseVerifySkillArgs(args);
+        if (!vArgs.path || !vArgs.content) {
+          process.stdout.write(JSON.stringify({ verified: false, errors: ["missing --path or --content"] }) + "\n");
+          return 1;
+        }
+        const result = handleVerifySkill(vArgs.path, vArgs.content);
+        process.stdout.write(JSON.stringify(result) + "\n");
+        return 0;
       }
 
       default:

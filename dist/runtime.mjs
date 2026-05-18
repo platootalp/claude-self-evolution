@@ -428,7 +428,13 @@ function handleStopGate(statePath, sessionsDir, sessionId, input, options, logge
 import path5 from "node:path";
 import os from "node:os";
 import fs5 from "node:fs";
-var SKILLS_DIR = path5.join(os.homedir(), ".claude", "skills");
+var _skillsDir = null;
+function getSkillsDir() {
+  if (!_skillsDir) {
+    _skillsDir = path5.join(os.homedir(), ".claude", "skills");
+  }
+  return _skillsDir;
+}
 var SECURITY_PATTERNS = [
   // Prompt injection (migrated from PI_PATTERN)
   { id: "pi-ignore-previous", severity: "dangerous", category: "prompt_injection", pattern: /(?:ignore previous|disregard above|<\||system:.*you are now|dump.*database|forget.*instructions)/i, description: "Prompt injection attempt" },
@@ -516,7 +522,7 @@ function scanContent(content) {
 function scanWrite(targetPath, content, options = {}) {
   const maxSkillSize = options.maxSkillSize ?? 262144;
   const normalizedTarget = path5.normalize(targetPath);
-  const normalizedSkillsDir = path5.normalize(SKILLS_DIR);
+  const normalizedSkillsDir = path5.normalize(getSkillsDir());
   const normalizedClaudeDir = path5.normalize(path5.join(os.homedir(), ".claude"));
   if (normalizedTarget.startsWith(normalizedClaudeDir + path5.sep) || normalizedTarget === normalizedClaudeDir) {
     const rel = path5.relative(normalizedSkillsDir, normalizedTarget);
@@ -1015,6 +1021,37 @@ function handleStatus(statePath, statsPath) {
   };
 }
 
+// src/commands/verify-skill.ts
+function verifySkill(skillPath, content) {
+  const errors = [];
+  const scanResult = scanWrite(skillPath, content);
+  if (!scanResult.allowed) {
+    errors.push(`security: ${scanResult.reason}`);
+  }
+  const validationResult = validateSkill(skillPath, content);
+  if (!validationResult.valid) {
+    errors.push(...validationResult.errors);
+  }
+  return {
+    verified: errors.length === 0,
+    errors
+  };
+}
+function parseVerifySkillArgs(argv) {
+  const args = { path: "", content: "" };
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--path" && argv[i + 1]) {
+      args.path = argv[++i];
+    } else if (argv[i] === "--content" && argv[i + 1]) {
+      args.content = argv[++i];
+    }
+  }
+  return args;
+}
+function handleVerifySkill(path10, content) {
+  return verifySkill(path10, content);
+}
+
 // src/runtime.ts
 function resolvePaths() {
   const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT ?? "";
@@ -1115,6 +1152,16 @@ function runCommand(command, args, stdinData) {
         const result = handleValidateSkill(validateArgs);
         process.stdout.write(JSON.stringify(result) + "\n");
         return result.valid ? 0 : 1;
+      }
+      case "verify-skill": {
+        const vArgs = parseVerifySkillArgs(args);
+        if (!vArgs.path || !vArgs.content) {
+          process.stdout.write(JSON.stringify({ verified: false, errors: ["missing --path or --content"] }) + "\n");
+          return 1;
+        }
+        const result = handleVerifySkill(vArgs.path, vArgs.content);
+        process.stdout.write(JSON.stringify(result) + "\n");
+        return 0;
       }
       default:
         process.stderr.write(`Unknown command: ${command}

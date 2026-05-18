@@ -3,7 +3,17 @@ import os from "node:os";
 import fs from "node:fs";
 import type { ScanResult, SecurityPattern, SecurityMatch } from "../types.js";
 
-const SKILLS_DIR = path.join(os.homedir(), ".claude", "skills");
+// Lazy-loaded to support test mocking
+let _skillsDir: string | null = null;
+export function _resetSkillsDirCache(): void {
+  _skillsDir = null;
+}
+function getSkillsDir(): string {
+  if (!_skillsDir) {
+    _skillsDir = path.join(os.homedir(), ".claude", "skills");
+  }
+  return _skillsDir;
+}
 
 const SECURITY_PATTERNS: SecurityPattern[] = [
   // Prompt injection (migrated from PI_PATTERN)
@@ -116,7 +126,7 @@ export function scanWrite(
 
   // 1. Path whitelist: only ~/.claude/skills/<name>/SKILL.md
   const normalizedTarget = path.normalize(targetPath);
-  const normalizedSkillsDir = path.normalize(SKILLS_DIR);
+  const normalizedSkillsDir = path.normalize(getSkillsDir());
   const normalizedClaudeDir = path.normalize(path.join(os.homedir(), ".claude"));
 
   if (normalizedTarget.startsWith(normalizedClaudeDir + path.sep) || normalizedTarget === normalizedClaudeDir) {
