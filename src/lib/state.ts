@@ -161,6 +161,7 @@ const EMPTY_STATS: Stats = {
   total_created: 0,
   total_updated: 0,
   total_skipped: 0,
+  total_deleted: 0,
   skip_reasons: {},
   recent_decisions: [],
 };
@@ -170,7 +171,12 @@ const MAX_RECENT_DECISIONS = 50;
 export function loadStats(statsPath: string): Stats {
   try {
     const raw = fs.readFileSync(statsPath, "utf-8");
-    return JSON.parse(raw) as Stats;
+    const stats = JSON.parse(raw) as Stats;
+    // Migration: ensure total_deleted exists on old stats files
+    if (stats.total_deleted === undefined) {
+      stats.total_deleted = 0;
+    }
+    return stats;
   } catch {
     return { ...EMPTY_STATS, skip_reasons: {}, recent_decisions: [] };
   }
@@ -200,6 +206,8 @@ export function updateStats(
   else if (decision === "SKIPPED") {
     stats.total_skipped += 1;
     stats.skip_reasons[detail] = (stats.skip_reasons[detail] ?? 0) + 1;
+  } else if (decision === "DELETED") {
+    stats.total_deleted += 1;
   }
 
   const rd: RecentDecision = {

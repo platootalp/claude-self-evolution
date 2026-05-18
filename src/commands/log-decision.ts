@@ -18,7 +18,7 @@ export function handleLogDecision(
   const skillName = decision !== "SKIPPED" ? extractSkillName(detail) : undefined;
 
   // Log review summary event
-  if (decision === "CREATED" || decision === "UPDATED" || decision === "SKIPPED") {
+  if (decision === "CREATED" || decision === "UPDATED" || decision === "SKIPPED" || decision === "DELETED") {
     logger.info("review_summary", {
       action: decision,
       ...(skillName ? { name: skillName } : {}),
@@ -26,10 +26,10 @@ export function handleLogDecision(
     });
   }
 
-  if (decision === "CREATED" || decision === "UPDATED" || decision === "SKIPPED") {
-    updateStats(statsPath, decision as "CREATED" | "UPDATED" | "SKIPPED", detail, sessionId, skillName);
+  if (decision === "CREATED" || decision === "UPDATED" || decision === "SKIPPED" || decision === "DELETED") {
+    updateStats(statsPath, decision as "CREATED" | "UPDATED" | "SKIPPED" | "DELETED", detail, sessionId, skillName);
     updateSessionResult(sessionsDir, sessionId, {
-      review_decision: decision as "CREATED" | "UPDATED" | "SKIPPED",
+      review_decision: decision as "CREATED" | "UPDATED" | "SKIPPED" | "DELETED",
       review_detail: detail,
       ...(skillName ? { skill_name: skillName } : {}),
     });

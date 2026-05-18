@@ -12,7 +12,7 @@ export interface Job {
   status: "running" | "completed" | "failed";
   started_at: string;
   completed_at?: string;
-  decision?: "CREATED" | "UPDATED" | "SKIPPED";
+  decision?: "CREATED" | "UPDATED" | "SKIPPED" | "DELETED";
   skill_name?: string;
 }
 
@@ -97,7 +97,7 @@ export type LogLevel = "off" | "info" | "debug";
 export interface SessionStateFull extends SessionState {
   start_ts?: string;
   end_ts?: string;
-  review_decision?: "CREATED" | "UPDATED" | "SKIPPED";
+  review_decision?: "CREATED" | "UPDATED" | "SKIPPED" | "DELETED";
   review_detail?: string;
   skill_name?: string;
   review_duration_ms?: number;
@@ -108,7 +108,7 @@ export interface SessionStateFull extends SessionState {
 export interface RecentDecision {
   ts: string;
   session_id: string;
-  decision: "CREATED" | "UPDATED" | "SKIPPED";
+  decision: "CREATED" | "UPDATED" | "SKIPPED" | "DELETED";
   detail: string;
   skill_name?: string;
 }
@@ -119,6 +119,7 @@ export interface Stats {
   total_created: number;
   total_updated: number;
   total_skipped: number;
+  total_deleted: number;
   skip_reasons: Record<string, number>;
   recent_decisions: RecentDecision[];
 }
