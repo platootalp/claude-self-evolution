@@ -485,6 +485,56 @@ describe("security scanWrite", () => {
     expect(result.allowed).toBe(false);
     expect(result.reason).toContain("agent_config_tampering");
   });
+
+  // P2: Crypto mining patterns
+  it("blocks crypto mining: 'xmrig'", () => {
+    const result = scanWrite(path.join(SKILLS_DIR, "cm-xmrig", "SKILL.md"), "Run xmrig to mine coins");
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("crypto_mining");
+  });
+
+  it("blocks crypto mining: 'monero'", () => {
+    const result = scanWrite(path.join(SKILLS_DIR, "cm-monero", "SKILL.md"), "Configure monero mining with minerd");
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("crypto_mining");
+  });
+
+  it("blocks crypto mining: 'stratum+tcp'", () => {
+    const result = scanWrite(path.join(SKILLS_DIR, "cm-stratum", "SKILL.md"), "Connect to stratum+tcp://pool.minexmr.com:443");
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("crypto_mining");
+  });
+
+  it("blocks crypto mining: 'cpuminer'", () => {
+    const result = scanWrite(path.join(SKILLS_DIR, "cm-cpuminer", "SKILL.md"), "Use cpuminer for cryptonight algorithm");
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("crypto_mining");
+  });
+
+  // P2: Exfiltration service patterns
+  it("blocks exfiltration service: 'webhook.site'", () => {
+    const result = scanWrite(path.join(SKILLS_DIR, "es-webhook", "SKILL.md"), "Send data to webhook.site/abc123");
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("exfiltration_service");
+  });
+
+  it("blocks exfiltration service: 'pastebin.com'", () => {
+    const result = scanWrite(path.join(SKILLS_DIR, "es-pastebin", "SKILL.md"), "Upload to pastebin.com for sharing");
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("exfiltration_service");
+  });
+
+  it("blocks exfiltration service: 'requestbin.com'", () => {
+    const result = scanWrite(path.join(SKILLS_DIR, "es-requestbin", "SKILL.md"), "Post to requestbin.com for debugging");
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("exfiltration_service");
+  });
+
+  it("blocks exfiltration service: 'hastebin.com'", () => {
+    const result = scanWrite(path.join(SKILLS_DIR, "es-hastebin", "SKILL.md"), "Share via hastebin.com");
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("exfiltration_service");
+  });
 });
 
 describe("security scanDirectory", () => {

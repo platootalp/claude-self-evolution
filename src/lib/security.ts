@@ -101,6 +101,24 @@ const SECURITY_PATTERNS: SecurityPattern[] = [
   { id: "ac-claude-md", severity: "dangerous", category: "agent_config_tampering", pattern: /CLAUDE\.md/i, description: "CLAUDE.md modification" },
   { id: "ac-claude-dir", severity: "dangerous", category: "agent_config_tampering", pattern: /\.claude\/(?:settings|hooks|config)/, description: ".claude/ config modification" },
   { id: "ac-settings-json", severity: "dangerous", category: "agent_config_tampering", pattern: /settings\.local\.json/, description: "Local settings modification" },
+
+  // P2: Crypto mining
+  { id: "cm-xmrig", severity: "dangerous", category: "crypto_mining", pattern: /\bxmrig\b/i, description: "XMRig crypto miner" },
+  { id: "cm-monero", severity: "dangerous", category: "crypto_mining", pattern: /\bmonero\b/i, description: "Monero cryptocurrency mining" },
+  { id: "cm-stratum", severity: "dangerous", category: "crypto_mining", pattern: /stratum\+tcp/i, description: "Stratum mining protocol" },
+  { id: "cm-minerd", severity: "dangerous", category: "crypto_mining", pattern: /\bminerd\b/i, description: "minerd crypto miner" },
+  { id: "cm-cpuminer", severity: "dangerous", category: "crypto_mining", pattern: /\bcpuminer\b/i, description: "cpuminer crypto miner" },
+  { id: "cm-cryptonight", severity: "dangerous", category: "crypto_mining", pattern: /\bcryptonight\b/i, description: "CryptoNight mining algorithm" },
+  { id: "cm-hashrate", severity: "dangerous", category: "crypto_mining", pattern: /\bhashrate\b/i, description: "Mining hashrate monitoring" },
+  { id: "cm-minexmr", severity: "dangerous", category: "crypto_mining", pattern: /pool\.minexmr/i, description: "MineXMR mining pool" },
+
+  // P2: Exfiltration services
+  { id: "es-webhook-site", severity: "dangerous", category: "exfiltration_service", pattern: /webhook\.site/i, description: "Webhook.site exfiltration endpoint" },
+  { id: "es-pastebin", severity: "dangerous", category: "exfiltration_service", pattern: /pastebin\.com/i, description: "Pastebin exfiltration service" },
+  { id: "es-requestbin", severity: "dangerous", category: "exfiltration_service", pattern: /requestbin\.com/i, description: "RequestBin exfiltration service" },
+  { id: "es-hastebin", severity: "dangerous", category: "exfiltration_service", pattern: /hastebin\.com/i, description: "Hastebin exfiltration service" },
+  { id: "es-dumpz", severity: "dangerous", category: "exfiltration_service", pattern: /dumpz\.org/i, description: "Dumpz exfiltration service" },
+  { id: "es-pipedream", severity: "dangerous", category: "exfiltration_service", pattern: /pipedream\.net/i, description: "Pipedream exfiltration service" },
 ];
 
 function scanContent(content: string): SecurityMatch[] {
