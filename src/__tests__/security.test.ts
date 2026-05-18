@@ -587,6 +587,83 @@ describe("applyTrustPolicy", () => {
   });
 });
 
+describe("auxiliary file whitelist", () => {
+  it("allows write to ~/.claude/skills/<name>/references/guide.md", () => {
+    const result = scanWrite(
+      path.join(SKILLS_DIR, "debug-foo", "references", "guide.md"),
+      "safe reference content"
+    );
+    expect(result.allowed).toBe(true);
+  });
+
+  it("allows write to ~/.claude/skills/<name>/templates/config.yaml", () => {
+    const result = scanWrite(
+      path.join(SKILLS_DIR, "debug-foo", "templates", "config.yaml"),
+      "key: value"
+    );
+    expect(result.allowed).toBe(true);
+  });
+
+  it("allows write to ~/.claude/skills/<name>/references/data.json", () => {
+    const result = scanWrite(
+      path.join(SKILLS_DIR, "debug-foo", "references", "data.json"),
+      '{"key": "value"}'
+    );
+    expect(result.allowed).toBe(true);
+  });
+
+  it("allows write to ~/.claude/skills/<name>/templates/notes.txt", () => {
+    const result = scanWrite(
+      path.join(SKILLS_DIR, "debug-foo", "templates", "notes.txt"),
+      "notes here"
+    );
+    expect(result.allowed).toBe(true);
+  });
+
+  it("allows write to ~/.claude/skills/<name>/references/schema.yml", () => {
+    const result = scanWrite(
+      path.join(SKILLS_DIR, "debug-foo", "references", "schema.yml"),
+      "type: object"
+    );
+    expect(result.allowed).toBe(true);
+  });
+
+  it("blocks write to ~/.claude/skills/<name>/references/script.sh", () => {
+    const result = scanWrite(
+      path.join(SKILLS_DIR, "debug-foo", "references", "script.sh"),
+      "#!/bin/bash"
+    );
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("file_type");
+  });
+
+  it("blocks write to ~/.claude/skills/<name>/templates/binary.exe", () => {
+    const result = scanWrite(
+      path.join(SKILLS_DIR, "debug-foo", "templates", "binary.exe"),
+      "binary"
+    );
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("file_type");
+  });
+
+  it("blocks write to ~/.claude/skills/<name>/scripts/run.py", () => {
+    const result = scanWrite(
+      path.join(SKILLS_DIR, "debug-foo", "scripts", "run.py"),
+      "print('hello')"
+    );
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("path_escape");
+  });
+
+  it("allows write to ~/.claude/skills/<name>/references/nested/deep.md", () => {
+    const result = scanWrite(
+      path.join(SKILLS_DIR, "debug-foo", "references", "nested", "deep.md"),
+      "nested content"
+    );
+    expect(result.allowed).toBe(true);
+  });
+});
+
 describe("security scanDirectory", () => {
   let skillDir: string;
 

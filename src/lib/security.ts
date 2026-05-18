@@ -160,7 +160,7 @@ export function scanWrite(
 ): ScanResult {
   const maxSkillSize = options.maxSkillSize ?? 262144;
 
-  // 1. Path whitelist: only ~/.claude/skills/<name>/SKILL.md
+  // 1. Path whitelist: SKILL.md, references/**, templates/**
   const normalizedTarget = path.normalize(targetPath);
   const normalizedSkillsDir = path.normalize(getSkillsDir());
   const normalizedClaudeDir = path.normalize(path.join(os.homedir(), ".claude"));
@@ -168,10 +168,24 @@ export function scanWrite(
   if (normalizedTarget.startsWith(normalizedClaudeDir + path.sep) || normalizedTarget === normalizedClaudeDir) {
     const rel = path.relative(normalizedSkillsDir, normalizedTarget);
     if (rel.startsWith("..") || path.isAbsolute(rel)) {
-      return { allowed: false, reason: "path_escape: write to ~/.claude/ outside skills/<name>/SKILL.md" };
+      return { allowed: false, reason: "path_escape: write to ~/.claude/ outside skills/<name>/" };
     }
-    if (!/^[^/]+\/SKILL\.md$/.test(rel)) {
-      return { allowed: false, reason: "path_escape: write to ~/.claude/skills/ must be to <name>/SKILL.md" };
+
+    const isSkillMd = /^[^/]+\/SKILL\.md$/.test(rel);
+    const isReferences = /^[^/]+\/references\//.test(rel);
+    const isTemplates = /^[^/]+\/templates\//.test(rel);
+
+    if (!isSkillMd && !isReferences && !isTemplates) {
+      return { allowed: false, reason: "path_escape: write to ~/.claude/skills/ must be to <name>/SKILL.md, <name>/references/**, or <name>/templates/**" };
+    }
+
+    // File type restriction for auxiliary directories
+    const ALLOWED_AUX_EXTENSIONS = [".md", ".txt", ".yaml", ".yml", ".json"];
+    if (isReferences || isTemplates) {
+      const ext = path.extname(normalizedTarget).toLowerCase();
+      if (!ALLOWED_AUX_EXTENSIONS.includes(ext)) {
+        return { allowed: false, reason: `file_type: auxiliary files must be one of ${ALLOWED_AUX_EXTENSIONS.join(", ")}, got '${ext}'` };
+      }
     }
   }
 
