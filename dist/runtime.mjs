@@ -2,9 +2,9 @@
 
 
 // src/runtime.ts
-import fs10 from "node:fs";
-import path8 from "node:path";
-import os4 from "node:os";
+import fs11 from "node:fs";
+import path9 from "node:path";
+import os5 from "node:os";
 
 // src/lib/config.ts
 import fs from "node:fs";
@@ -680,13 +680,163 @@ function parseSecurityScanArgs(argv) {
   return args;
 }
 
-// src/commands/review-context.ts
-import fs7 from "node:fs";
+// src/commands/validate-skill.ts
 import path6 from "node:path";
+import fs6 from "node:fs";
 import os2 from "node:os";
+function parseFrontmatter(lines) {
+  const result = {};
+  let hasKeyValuePairs = false;
+  for (const line of lines) {
+    const match = line.match(/^\s*(\w+)\s*:\s*(.*?)\s*$/);
+    if (match) {
+      hasKeyValuePairs = true;
+      const key = match[1];
+      let value = match[2];
+      const singleQuoteMatch = value.match(/^'([^']*)'$/);
+      const doubleQuoteMatch = value.match(/^"([^"]*)"$/);
+      if (singleQuoteMatch) {
+        value = singleQuoteMatch[1];
+      } else if (doubleQuoteMatch) {
+        value = doubleQuoteMatch[1];
+      }
+      result[key] = value;
+    }
+  }
+  if (!hasKeyValuePairs && lines.some((l) => l.trim() !== "")) {
+    return null;
+  }
+  return result;
+}
+function findSkillFiles(dir) {
+  const results = [];
+  try {
+    const entries = fs6.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path6.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        results.push(...findSkillFiles(fullPath));
+      } else if (entry.name === "SKILL.md") {
+        results.push(fullPath);
+      }
+    }
+  } catch {
+  }
+  return results;
+}
+function extractNameFromFile(filePath) {
+  try {
+    const content = fs6.readFileSync(filePath, "utf-8");
+    const match = content.match(/^name:\s*(.+)$/m);
+    if (match) {
+      let name = match[1].trim();
+      const singleQuoteMatch = name.match(/^'([^']*)'$/);
+      const doubleQuoteMatch = name.match(/^"([^"]*)"$/);
+      if (singleQuoteMatch) {
+        name = singleQuoteMatch[1];
+      } else if (doubleQuoteMatch) {
+        name = doubleQuoteMatch[1];
+      }
+      return name;
+    }
+  } catch {
+  }
+  return null;
+}
+function validateSkill(skillPath, content, mode = "create") {
+  const errors = [];
+  const lines = content.split(/\r?\n/);
+  if (lines[0] !== "---") {
+    return { valid: false, errors: ["missing opening frontmatter delimiter '---'"] };
+  }
+  let closingLineIndex = -1;
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i] === "---") {
+      closingLineIndex = i;
+      break;
+    }
+  }
+  if (closingLineIndex === -1) {
+    return { valid: false, errors: ["missing closing frontmatter delimiter '---'"] };
+  }
+  const frontmatterLines = lines.slice(1, closingLineIndex);
+  const bodyLines = lines.slice(closingLineIndex + 1);
+  const body = bodyLines.join("\n").trim();
+  const parsed = parseFrontmatter(frontmatterLines);
+  if (parsed === null) {
+    return { valid: false, errors: ["frontmatter must parse to an object, not a scalar or array"] };
+  }
+  const name = parsed.name;
+  if (typeof name !== "string" || name.trim() === "") {
+    return { valid: false, errors: ["frontmatter 'name' is required and must be a non-empty string"] };
+  }
+  const description = parsed.description;
+  if (typeof description !== "string" || description.trim() === "") {
+    return { valid: false, errors: ["frontmatter 'description' is required and must be a non-empty string"] };
+  }
+  if (body === "") {
+    return { valid: false, errors: ["skill body must be non-empty after frontmatter"] };
+  }
+  const trimmedName = name.trim();
+  if (!/^[a-z0-9][a-z0-9._-]*$/.test(trimmedName)) {
+    errors.push(
+      "name must match convention: start with alphanumeric, followed by alphanumeric, dots, underscores, or hyphens"
+    );
+  }
+  if (trimmedName.length > 64) {
+    errors.push("name must be 64 characters or fewer");
+  }
+  const dirName = path6.basename(path6.dirname(skillPath));
+  if (trimmedName !== dirName) {
+    errors.push("name must match the parent directory name");
+  }
+  if (errors.length > 0) {
+    return { valid: false, errors };
+  }
+  if (mode === "create") {
+    const skillsDir = path6.join(os2.homedir(), ".claude", "skills");
+    const normalizedTarget = path6.normalize(skillPath);
+    const existingSkills = findSkillFiles(skillsDir);
+    for (const existingPath of existingSkills) {
+      const normalizedExisting = path6.normalize(existingPath);
+      if (normalizedExisting === normalizedTarget) {
+        continue;
+      }
+      const existingName = extractNameFromFile(existingPath);
+      if (existingName === trimmedName) {
+        return {
+          valid: false,
+          errors: [`collision: skill with name '${trimmedName}' already exists at '${existingPath}'`]
+        };
+      }
+    }
+  }
+  return { valid: true, errors: [] };
+}
+function parseValidateSkillArgs(argv) {
+  const args = { path: "", content: "", mode: "create" };
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--path" && argv[i + 1]) {
+      args.path = argv[++i];
+    } else if (argv[i] === "--content" && argv[i + 1]) {
+      args.content = argv[++i];
+    } else if (argv[i] === "--mode" && argv[i + 1]) {
+      args.mode = argv[++i];
+    }
+  }
+  return args;
+}
+function handleValidateSkill(args) {
+  return validateSkill(args.path, args.content, args.mode);
+}
+
+// src/commands/review-context.ts
+import fs8 from "node:fs";
+import path7 from "node:path";
+import os3 from "node:os";
 
 // src/lib/transcript.ts
-import fs6 from "node:fs";
+import fs7 from "node:fs";
 function parseTranscript(transcriptPath) {
   const summary = {
     toolCalls: [],
@@ -700,7 +850,7 @@ function parseTranscript(transcriptPath) {
   }
   let raw;
   try {
-    raw = fs6.readFileSync(transcriptPath, "utf-8").trim();
+    raw = fs7.readFileSync(transcriptPath, "utf-8").trim();
   } catch (err) {
     process.stderr.write(`[self-evolution] parseTranscript: failed to read "${transcriptPath}": ${err}
 `);
@@ -793,11 +943,11 @@ function parseTranscript(transcriptPath) {
 
 // src/commands/review-context.ts
 function handleReviewContext(options, logger) {
-  const skillsDir = options.skillsDir ?? path6.join(os2.homedir(), ".claude", "skills");
+  const skillsDir = options.skillsDir ?? path7.join(os3.homedir(), ".claude", "skills");
   const transcript = parseTranscript(options.transcriptPath);
   let existingSkills = [];
   try {
-    const entries = fs7.readdirSync(skillsDir, { withFileTypes: true });
+    const entries = fs8.readdirSync(skillsDir, { withFileTypes: true });
     existingSkills = entries.filter((e) => e.isDirectory()).map((e) => e.name);
   } catch {
   }
@@ -817,9 +967,9 @@ function handleReviewContext(options, logger) {
 }
 
 // src/commands/log-decision.ts
-import fs8 from "node:fs";
-import path7 from "node:path";
-import os3 from "node:os";
+import fs9 from "node:fs";
+import path8 from "node:path";
+import os4 from "node:os";
 function handleLogDecision(sessionsDir, statsPath, sessionId, decision, detail, durationMs, logger) {
   logger.logDecision(decision, detail, durationMs);
   if (decision === "CREATED" || decision === "UPDATED" || decision === "SKIPPED") {
@@ -831,11 +981,11 @@ function handleLogDecision(sessionsDir, statsPath, sessionId, decision, detail, 
       ...skillName ? { skill_name: skillName } : {}
     });
     if (skillName) {
-      const skillPath = path7.join(os3.homedir(), ".claude", "skills", skillName, "SKILL.md");
+      const skillPath = path8.join(os4.homedir(), ".claude", "skills", skillName, "SKILL.md");
       try {
-        const stat = fs8.statSync(skillPath);
+        const stat = fs9.statSync(skillPath);
         logger.info("skill_written", { path: skillPath, size_bytes: stat.size });
-        const content = fs8.readFileSync(skillPath, "utf-8");
+        const content = fs9.readFileSync(skillPath, "utf-8");
         logger.debug("skill_content_preview", { preview: content.slice(0, 200) });
       } catch {
         logger.info("skill_written", { skill_name: skillName });
@@ -849,11 +999,11 @@ function extractSkillName(detail) {
 }
 
 // src/commands/status.ts
-import fs9 from "node:fs";
+import fs10 from "node:fs";
 function handleStatus(statePath, statsPath) {
   const state = loadState(statePath);
   let stats = null;
-  if (fs9.existsSync(statsPath)) {
+  if (fs10.existsSync(statsPath)) {
     stats = loadStats(statsPath);
   }
   return {
@@ -870,17 +1020,17 @@ function resolvePaths() {
   const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT ?? "";
   const pluginData = process.env.CLAUDE_PLUGIN_DATA ?? (() => {
     if (pluginRoot) {
-      const name = path8.basename(pluginRoot);
-      const marketplace = path8.basename(path8.dirname(pluginRoot));
-      return path8.join(os4.homedir(), ".claude", "plugins", "data", `${name}-${marketplace}`);
+      const name = path9.basename(pluginRoot);
+      const marketplace = path9.basename(path9.dirname(pluginRoot));
+      return path9.join(os5.homedir(), ".claude", "plugins", "data", `${name}-${marketplace}`);
     }
-    return path8.join(os4.homedir(), ".claude", "plugins", "data", "self-evolution-self-evolution-marketplace");
+    return path9.join(os5.homedir(), ".claude", "plugins", "data", "self-evolution-self-evolution-marketplace");
   })();
   const config = resolveConfig(pluginRoot);
   return {
-    statePath: path8.join(pluginData, "state.json"),
-    sessionsDir: path8.join(pluginData, "sessions"),
-    statsPath: path8.join(pluginData, "stats.json"),
+    statePath: path9.join(pluginData, "state.json"),
+    sessionsDir: path9.join(pluginData, "sessions"),
+    statsPath: path9.join(pluginData, "stats.json"),
     pluginRoot,
     pluginData,
     config
@@ -960,6 +1110,12 @@ function runCommand(command, args, stdinData) {
         process.stdout.write(JSON.stringify(result, null, 2) + "\n");
         return 0;
       }
+      case "validate-skill": {
+        const validateArgs = parseValidateSkillArgs(args);
+        const result = handleValidateSkill(validateArgs);
+        process.stdout.write(JSON.stringify(result) + "\n");
+        return result.valid ? 0 : 1;
+      }
       default:
         process.stderr.write(`Unknown command: ${command}
 `);
@@ -977,7 +1133,7 @@ if (process.argv[1]?.endsWith("runtime.ts") || process.argv[1]?.endsWith("runtim
   let stdinData = "";
   if (["post-tool-use", "stop-gate"].includes(command)) {
     try {
-      stdinData = fs10.readFileSync("/dev/stdin", "utf-8").trim();
+      stdinData = fs11.readFileSync("/dev/stdin", "utf-8").trim();
     } catch {
     }
   }

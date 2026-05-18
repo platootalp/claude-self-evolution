@@ -8,6 +8,7 @@ import { handleSessionStart } from "./commands/session-start.js";
 import { handlePostToolUse } from "./commands/post-tool-use.js";
 import { handleStopGate } from "./commands/stop-gate.js";
 import { handleSecurityScan, parseSecurityScanArgs } from "./commands/security-scan.js";
+import { handleValidateSkill, parseValidateSkillArgs } from "./commands/validate-skill.js";
 import { handleReviewContext } from "./commands/review-context.js";
 import { handleLogDecision } from "./commands/log-decision.js";
 import { handleStatus } from "./commands/status.js";
@@ -114,6 +115,13 @@ export function runCommand(command: string, args: string[], stdinData: string): 
         const result = handleStatus(statePath, statsPath);
         process.stdout.write(JSON.stringify(result, null, 2) + "\n");
         return 0;
+      }
+
+      case "validate-skill": {
+        const validateArgs = parseValidateSkillArgs(args);
+        const result = handleValidateSkill(validateArgs);
+        process.stdout.write(JSON.stringify(result) + "\n");
+        return result.valid ? 0 : 1;
       }
 
       default:
