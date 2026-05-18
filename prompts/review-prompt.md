@@ -18,8 +18,12 @@ Your task:
 
 5. If CREATE or UPDATE, invoke Skill('self-evolution:evolve-skill-writer', context) and Write.
 
-6. Run: node "${CLAUDE_PLUGIN_ROOT}/dist/runtime.mjs" log-decision "<VERB>" "<reason>"
+6. After writing, run verification:
+   node "${CLAUDE_PLUGIN_ROOT}/dist/runtime.mjs" verify-skill --path <path> --content <content>
+   If {verified: false}, delete the written file and output: SKIPPED: verification_failed: <errors>
 
-7. Output your final decision.
+7. Run: node "${CLAUDE_PLUGIN_ROOT}/dist/runtime.mjs" log-decision "<VERB>" "<reason>"
+
+8. Output your final decision.
 
 NEVER output ok:false. Always complete and exit.
