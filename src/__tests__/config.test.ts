@@ -99,6 +99,16 @@ describe("loadRawConfig", () => {
     const raw = loadRawConfig(tmpDir);
     expect(raw).toEqual({ log_level: "debug" });
   });
+  it("returns empty object when config.json is not an object", () => {
+    fs.writeFileSync(path.join(tmpDir, "config.json"), '"hello"');
+    const raw = loadRawConfig(tmpDir);
+    expect(raw).toEqual({});
+  });
+  it("returns empty object when config.json is an array", () => {
+    fs.writeFileSync(path.join(tmpDir, "config.json"), "[1,2,3]");
+    const raw = loadRawConfig(tmpDir);
+    expect(raw).toEqual({});
+  });
 });
 
 describe("validateConfigValue", () => {
@@ -131,6 +141,11 @@ describe("validateConfigValue", () => {
     const result = validateConfigValue("category_whitelist", "[]");
     expect(result.ok).toBe(false);
     expect(result.error).toContain("non-empty");
+  });
+  it("rejects non-string elements in array", () => {
+    const result = validateConfigValue("category_whitelist", "[1,2,3]");
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("strings");
   });
   it("rejects unknown key", () => {
     const result = validateConfigValue("nonexistent", "foo");

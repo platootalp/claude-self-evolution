@@ -145,7 +145,11 @@ export function getEnvVarName(key: string): string | undefined {
 export function loadRawConfig(pluginRoot: string): Record<string, unknown> {
   try {
     const raw = fs.readFileSync(path.join(pluginRoot, "config.json"), "utf-8");
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+    return parsed;
   } catch {
     return {};
   }
@@ -165,7 +169,7 @@ export function validateConfigValue(key: string, rawValue: string): ValidateResu
 
   switch (schema.type) {
     case "enum": {
-      if (!schema.enumValues || schema.enumValues.includes(rawValue)) {
+      if (schema.enumValues && schema.enumValues.includes(rawValue)) {
         return { ok: true, value: rawValue };
       }
       return { ok: false, error: `must be one of: ${schema.enumValues.join(", ")}` };
@@ -201,6 +205,9 @@ export function validateConfigValue(key: string, rawValue: string): ValidateResu
       }
       if (parsed.length === 0) {
         return { ok: false, error: "must be a non-empty array" };
+      }
+      if (parsed.some((item: unknown) => typeof item !== "string")) {
+        return { ok: false, error: "must be a JSON array of strings" };
       }
       return { ok: true, value: parsed };
     }
