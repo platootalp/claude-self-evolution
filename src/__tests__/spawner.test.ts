@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 
 // Mock node:child_process before importing spawner
 vi.mock("node:child_process", () => ({
   spawn: vi.fn(),
 }));
 
-import { getSpawner, detectPlatform, ClaudeCodeSpawner, CodexSpawner, CursorSpawner } from "../lib/spawner.js";
+import { getSpawner, detectPlatform, ClaudeCodeSpawner, CodexSpawner, CursorSpawner, selectPromptVariant } from "../lib/spawner.js";
 
 describe("spawner", () => {
   const originalEnv = { ...process.env };
@@ -182,5 +184,71 @@ describe("spawner", () => {
     const spawnArgs = (spawn as any).mock.calls[0];
     const env = spawnArgs[2].env;
     expect(env.SELF_EVOLUTION_REVIEW_MODE).toBe("1");
+  });
+});
+
+describe("selectPromptVariant", () => {
+  it("returns 'skill' when no existing skills and transcript has content", () => {
+    const result = selectPromptVariant([], "user asked about react hooks");
+    expect(result).toBe("skill");
+  });
+
+  it("returns 'update' when existing skill name overlaps with transcript", () => {
+    const result = selectPromptVariant(
+      [{ name: "react-hooks", description: "React hooks patterns" }],
+      "user asked about react hooks usage"
+    );
+    expect(result).toBe("update");
+  });
+
+  it("returns 'combined' when transcript is empty", () => {
+    const result = selectPromptVariant([], "");
+    expect(result).toBe("combined");
+  });
+
+  it("returns 'combined' when transcript is whitespace only", () => {
+    const result = selectPromptVariant([], "   \n\t  ");
+    expect(result).toBe("combined");
+  });
+
+  it("returns 'skill' when no skill name words match transcript", () => {
+    const result = selectPromptVariant(
+      [{ name: "docker-debug", description: "Docker debugging patterns" }],
+      "user asked about react hooks"
+    );
+    expect(result).toBe("skill");
+  });
+
+  it("returns 'update' when skill description word matches transcript", () => {
+    const result = selectPromptVariant(
+      [{ name: "my-skill", description: "React component testing patterns" }],
+      "user was testing components"
+    );
+    expect(result).toBe("update");
+  });
+
+  it("ignores short words (<=3 chars) in skill name", () => {
+    const result = selectPromptVariant(
+      [{ name: "api-v2", description: "" }],
+      "user asked about api"  // "api" is 3 chars, should be ignored in name matching
+    );
+    expect(result).toBe("skill");
+  });
+});
+
+describe("prompt variant files", () => {
+  const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT ?? "";
+  const promptsDir = pluginRoot ? path.join(pluginRoot, "prompts") : path.join(process.cwd(), "prompts");
+
+  it("review-prompt-skill.md exists", () => {
+    expect(fs.existsSync(path.join(promptsDir, "review-prompt-skill.md"))).toBe(true);
+  });
+
+  it("review-prompt-update.md exists", () => {
+    expect(fs.existsSync(path.join(promptsDir, "review-prompt-update.md"))).toBe(true);
+  });
+
+  it("review-prompt-combined.md exists", () => {
+    expect(fs.existsSync(path.join(promptsDir, "review-prompt-combined.md"))).toBe(true);
   });
 });
