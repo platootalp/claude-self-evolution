@@ -44,15 +44,18 @@ Produce a complete, valid SKILL.md following the rules below. Either:
 DO NOT run evals, DO NOT spawn subagents, DO NOT open browsers. This is a
 non-interactive content generator.
 
-## Anatomy (v1: SKILL.md only)
+## Anatomy (SKILL.md + auxiliary files)
 
 ```
 <category>-<kebab-name>/
-└── SKILL.md      # only this file in v1 self-evolution
+├── SKILL.md          # primary skill file
+├── references/       # supplementary docs (.md, .txt, .yaml, .yml, .json)
+└── templates/        # reusable templates (.md, .txt, .yaml, .yml, .json)
 ```
 
-`scripts/`, `references/`, `assets/` are reserved for v2+. The auto-generated
-v1 skills are intentionally lightweight (~50-200 lines of SKILL.md).
+Auxiliary files in `references/` and `templates/` support richer skills.
+Allowed file types: `.md`, `.txt`, `.yaml`, `.yml`, `.json`.
+No executables, scripts, or binary files.
 
 ## Naming Convention
 
@@ -85,6 +88,7 @@ when_to_use: |
   <trigger condition + 1-2 example user phrases>
 paths: ["**/*"]
 allowed-tools: <space-separated list, narrow as appropriate>
+trust: agent-created
 version: "1.0.0"
 ---
 ```
@@ -101,6 +105,8 @@ Field rules:
   (e.g. `Read Bash Edit` for a debug skill; `Read Write Edit` for a refactor skill)
 - `version`: always `"1.0.0"` for new CREATE; for UPDATE, increment the patch
   number on the existing skill (e.g. `1.0.0` → `1.0.1`)
+- `trust`: always `agent-created` for self-evolution generated skills. This
+  marks the skill's trust level for security policy enforcement.
 
 ## Description Rules (CRITICAL — primary triggering mechanism)
 
@@ -166,7 +172,7 @@ example scenarios; 1-2 anti-patterns where this skill is the wrong tool>
 - **Examples beat rules**: a concrete walkthrough often does more than 5 paragraphs
   of theory
 - **Keep < 500 lines**: if you find yourself approaching this limit, you're doing
-  too much in one skill — split it or move details to `references/` (v2+ feature)
+  too much in one skill — split it or move details to `references/`
 
 ## Quality Checklist (verify before final output)
 
