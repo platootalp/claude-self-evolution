@@ -67,4 +67,32 @@ describe("runtime command router", () => {
     const result = runCommand("nonexistent", [], "{}");
     expect(result).toBe(1);
   });
+
+  it("routes config-get correctly", () => {
+    process.env.CLAUDE_PLUGIN_ROOT = tmpDir;
+    process.env.CLAUDE_PLUGIN_DATA = tmpDir;
+    const result = runCommand("config-get", [], "");
+    expect(result).toBe(0);
+  });
+
+  it("routes config-set correctly", () => {
+    process.env.CLAUDE_PLUGIN_ROOT = tmpDir;
+    process.env.CLAUDE_PLUGIN_DATA = tmpDir;
+    const result = runCommand("config-set", ["--key", "log_level", "--value", "debug"], "");
+    expect(result).toBe(0);
+  });
+
+  it("routes config-set with invalid key as exit code 1", () => {
+    process.env.CLAUDE_PLUGIN_ROOT = tmpDir;
+    process.env.CLAUDE_PLUGIN_DATA = tmpDir;
+    const result = runCommand("config-set", ["--key", "nonexistent", "--value", "foo"], "");
+    expect(result).toBe(1);
+  });
+
+  it("routes config-set missing --key as exit code 1", () => {
+    process.env.CLAUDE_PLUGIN_ROOT = tmpDir;
+    process.env.CLAUDE_PLUGIN_DATA = tmpDir;
+    const result = runCommand("config-set", [], "");
+    expect(result).toBe(1);
+  });
 });

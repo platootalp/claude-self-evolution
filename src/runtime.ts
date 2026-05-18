@@ -14,6 +14,8 @@ import { handleLogDecision } from "./commands/log-decision.js";
 import { handleStatus } from "./commands/status.js";
 import { handleVerifySkill, parseVerifySkillArgs } from "./commands/verify-skill.js";
 import { handleDeleteSkill, parseDeleteSkillArgs } from "./commands/delete-skill.js";
+import { handleConfigGet, parseConfigGetArgs } from "./commands/config-get.js";
+import { handleConfigSet, parseConfigSetArgs } from "./commands/config-set.js";
 
 function resolvePaths(): { statePath: string; sessionsDir: string; statsPath: string; pluginRoot: string; pluginData: string; config: Config } {
   const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT ?? "";
@@ -150,6 +152,28 @@ export function runCommand(command: string, args: string[], stdinData: string): 
         const result = handleDeleteSkill(delArgs);
         process.stdout.write(JSON.stringify(result) + "\n");
         return result.success ? 0 : 1;
+      }
+
+      case "config-get": {
+        const getArgs = parseConfigGetArgs(args);
+        const result = handleConfigGet(pluginRoot, getArgs.key || undefined);
+        process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+        return 0;
+      }
+
+      case "config-set": {
+        const setArgs = parseConfigSetArgs(args);
+        if (!setArgs.key) {
+          process.stdout.write(JSON.stringify({ ok: false, key: "", error: "missing --key" }) + "\n");
+          return 1;
+        }
+        if (!setArgs.reset && !setArgs.value) {
+          process.stdout.write(JSON.stringify({ ok: false, key: setArgs.key, error: "missing --value (or use --reset)" }) + "\n");
+          return 1;
+        }
+        const result = handleConfigSet(pluginRoot, setArgs.key, setArgs.value, setArgs.reset);
+        process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+        return result.ok ? 0 : 1;
       }
 
       default:
