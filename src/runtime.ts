@@ -120,6 +120,10 @@ export function runCommand(command: string, args: string[], stdinData: string): 
 
       case "validate-skill": {
         const validateArgs = parseValidateSkillArgs(args);
+        if (!validateArgs.path || !validateArgs.content) {
+          process.stdout.write(JSON.stringify({ valid: false, errors: ["missing --path or --content"] }) + "\n");
+          return 1;
+        }
         const result = handleValidateSkill(validateArgs);
         process.stdout.write(JSON.stringify(result) + "\n");
         return result.valid ? 0 : 1;
