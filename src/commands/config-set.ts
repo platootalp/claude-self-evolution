@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { resolveConfig, loadRawConfig, getEnvVarName, validateConfigValue, CONFIG_SCHEMA } from "../lib/config.js";
+import { resolveConfig, loadConfig, loadRawConfig, getEnvVarName, validateConfigValue, CONFIG_SCHEMA } from "../lib/config.js";
+import type { Config } from "../lib/config.js";
 
 export interface ConfigSetArgs {
   key: string;
@@ -14,7 +15,9 @@ export interface ConfigSetResult {
   old_value?: unknown;
   new_value?: unknown;
   source?: string;
+  env_var?: string;
   error?: string;
+  errorCode?: number;
 }
 
 export function parseConfigSetArgs(argv: string[]): ConfigSetArgs {
@@ -31,15 +34,19 @@ export function parseConfigSetArgs(argv: string[]): ConfigSetArgs {
   return args;
 }
 
+function getConfigValue(resolved: Config, key: string): unknown {
+  return (resolved as any)[key];
+}
+
 export function handleConfigSet(pluginRoot: string, key: string, rawValue: string, reset: boolean = false): ConfigSetResult {
   if (!CONFIG_SCHEMA[key]) {
-    return { ok: false, key, error: `unknown key '${key}'. Valid keys: ${Object.keys(CONFIG_SCHEMA).join(", ")}` };
+    return { ok: false, key, error: `unknown key '${key}'. Valid keys: ${Object.keys(CONFIG_SCHEMA).join(", ")}`, errorCode: 1 };
   }
 
   const resolved = resolveConfig(pluginRoot);
-  const old_value = (resolved as any)[key];
+  const old_value = getConfigValue(resolved, key);
   const envVar = getEnvVarName(key);
-  const source = envVar && process.env[envVar] ? "env_var" : "config_file";
+  const hasEnvOverride = envVar && process.env[envVar];
 
   if (reset) {
     const raw = loadRawConfig(pluginRoot);
@@ -48,14 +55,19 @@ export function handleConfigSet(pluginRoot: string, key: string, rawValue: strin
     try {
       fs.writeFileSync(configPath, JSON.stringify(raw, null, 2) + "\n");
     } catch (err) {
-      return { ok: false, key, error: `failed to write config.json: ${err}` };
+      return { ok: false, key, error: `failed to write config.json: ${err}`, errorCode: 2 };
     }
-    return { ok: true, key, old_value, new_value: undefined, source };
+    const defaults = loadConfig(pluginRoot);
+    const new_value = getConfigValue(defaults, key);
+    const source = hasEnvOverride ? "env_var" : "default";
+    const result: ConfigSetResult = { ok: true, key, old_value, new_value, source };
+    if (hasEnvOverride && envVar) result.env_var = envVar;
+    return result;
   }
 
   const validation = validateConfigValue(key, rawValue);
   if (!validation.ok) {
-    return { ok: false, key, error: validation.error };
+    return { ok: false, key, error: validation.error, errorCode: 1 };
   }
 
   const raw = loadRawConfig(pluginRoot);
@@ -64,8 +76,11 @@ export function handleConfigSet(pluginRoot: string, key: string, rawValue: strin
   try {
     fs.writeFileSync(configPath, JSON.stringify(raw, null, 2) + "\n");
   } catch (err) {
-    return { ok: false, key, error: `failed to write config.json: ${err}` };
+    return { ok: false, key, error: `failed to write config.json: ${err}`, errorCode: 2 };
   }
 
-  return { ok: true, key, old_value, new_value: validation.value, source };
+  const source = hasEnvOverride ? "env_var" : "config_file";
+  const result: ConfigSetResult = { ok: true, key, old_value, new_value: validation.value, source };
+  if (hasEnvOverride && envVar) result.env_var = envVar;
+  return result;
 }

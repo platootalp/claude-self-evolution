@@ -9,6 +9,7 @@ export interface ConfigGetEntry {
   key: string;
   value: unknown;
   source: "default" | "config_file" | "env_var";
+  env_var?: string;
 }
 
 export function parseConfigGetArgs(argv: string[]): ConfigGetArgs {
@@ -21,6 +22,10 @@ export function parseConfigGetArgs(argv: string[]): ConfigGetArgs {
   return args;
 }
 
+function getConfigValue(resolved: Config, key: string): unknown {
+  return (resolved as any)[key];
+}
+
 export function handleConfigGet(pluginRoot: string, filterKey?: string): ConfigGetEntry[] {
   const resolved = resolveConfig(pluginRoot);
   const raw = loadRawConfig(pluginRoot);
@@ -30,11 +35,13 @@ export function handleConfigGet(pluginRoot: string, filterKey?: string): ConfigG
   return validKeys.map((key) => {
     const envVar = getEnvVarName(key);
     let source: ConfigGetEntry["source"] = "default";
+    let env_var: string | undefined;
     if (envVar && process.env[envVar]) {
       source = "env_var";
+      env_var = envVar;
     } else if (key in raw) {
       source = "config_file";
     }
-    return { key, value: (resolved as any)[key], source };
+    return { key, value: getConfigValue(resolved, key), source, env_var };
   });
 }

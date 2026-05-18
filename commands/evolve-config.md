@@ -1,6 +1,6 @@
 ---
 description: Manage self-evolution plugin configuration through conversation.
-allowed-tools: Bash(node:*)
+allowed-tools: Task, Bash(node:*), Read
 argument-hint: "[setting or question]"
 ---
 

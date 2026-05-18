@@ -173,7 +173,7 @@ export function runCommand(command: string, args: string[], stdinData: string): 
         }
         const result = handleConfigSet(pluginRoot, setArgs.key, setArgs.value, setArgs.reset);
         process.stdout.write(JSON.stringify(result, null, 2) + "\n");
-        return result.ok ? 0 : 1;
+        return result.ok ? 0 : (result.errorCode ?? 1);
       }
 
       default:

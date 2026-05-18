@@ -2,9 +2,9 @@
 
 
 // src/runtime.ts
-import fs11 from "node:fs";
-import path9 from "node:path";
-import os5 from "node:os";
+import fs13 from "node:fs";
+import path11 from "node:path";
+import os7 from "node:os";
 
 // src/lib/config.ts
 import fs from "node:fs";
@@ -48,6 +48,138 @@ function resolveLogLevel(config) {
   const level = config.log_level.toLowerCase();
   if (level === "off" || level === "info" || level === "debug") return level;
   return "info";
+}
+var CONFIG_SCHEMA = {
+  log_level: {
+    type: "enum",
+    enumValues: ["off", "info", "debug"],
+    description: "Logging verbosity"
+  },
+  nudge_interval: {
+    type: "int",
+    min: 1,
+    description: "Tool calls before review trigger"
+  },
+  review_model: {
+    type: "enum",
+    enumValues: ["sonnet", "opus", "haiku"],
+    description: "Model for companion reviewer"
+  },
+  platform: {
+    type: "enum",
+    enumValues: ["auto", "claude-code", "codex", "cursor"],
+    description: "Target platform"
+  },
+  category_whitelist: {
+    type: "string[]",
+    description: "Skill categories to extract"
+  },
+  meta_skill_name: {
+    type: "string",
+    description: "Name of the skill-writing meta-skill"
+  },
+  review_max_turns: {
+    type: "int",
+    min: 1,
+    max: 20,
+    description: "Max turns for companion review"
+  },
+  max_skill_file_size: {
+    type: "int",
+    min: 1024,
+    description: "Max bytes per skill file"
+  },
+  max_skill_total_size: {
+    type: "int",
+    min: 1024,
+    description: "Max total bytes per skill"
+  },
+  max_files_per_skill: {
+    type: "int",
+    min: 1,
+    max: 100,
+    description: "Max files per skill"
+  },
+  binary_extensions: {
+    type: "string[]",
+    description: "File extensions to block"
+  }
+};
+var ENV_VAR_MAP = {
+  nudge_interval: "SELF_EVOLUTION_NUDGE_INTERVAL",
+  review_model: "SELF_EVOLUTION_REVIEW_MODEL",
+  platform: "SELF_EVOLUTION_PLATFORM",
+  log_level: "SELF_EVOLUTION_LOG_LEVEL",
+  review_max_turns: "SELF_EVOLUTION_REVIEW_MAX_TURNS",
+  max_skill_file_size: "SELF_EVOLUTION_MAX_SKILL_FILE_SIZE",
+  max_skill_total_size: "SELF_EVOLUTION_MAX_SKILL_TOTAL_SIZE",
+  max_files_per_skill: "SELF_EVOLUTION_MAX_FILES_PER_SKILL"
+};
+function getEnvVarName(key) {
+  return ENV_VAR_MAP[key];
+}
+function loadRawConfig(pluginRoot) {
+  try {
+    const raw = fs.readFileSync(path.join(pluginRoot, "config.json"), "utf-8");
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+    return parsed;
+  } catch {
+    return {};
+  }
+}
+function validateConfigValue(key, rawValue) {
+  const schema = CONFIG_SCHEMA[key];
+  if (!schema) {
+    return { ok: false, error: `unknown key: ${key}` };
+  }
+  switch (schema.type) {
+    case "enum": {
+      if (schema.enumValues && schema.enumValues.includes(rawValue)) {
+        return { ok: true, value: rawValue };
+      }
+      return { ok: false, error: `must be one of: ${schema.enumValues.join(", ")}` };
+    }
+    case "int": {
+      const n = Number(rawValue);
+      if (!Number.isInteger(n)) {
+        return { ok: false, error: "must be an integer" };
+      }
+      if (schema.min !== void 0 && n < schema.min) {
+        return { ok: false, error: `must be >= ${schema.min}` };
+      }
+      if (schema.max !== void 0 && n > schema.max) {
+        return { ok: false, error: `must be <= ${schema.max}` };
+      }
+      return { ok: true, value: n };
+    }
+    case "string": {
+      if (rawValue.length === 0) {
+        return { ok: false, error: "must be non-empty" };
+      }
+      return { ok: true, value: rawValue };
+    }
+    case "string[]": {
+      let parsed;
+      try {
+        parsed = JSON.parse(rawValue);
+      } catch {
+        return { ok: false, error: "must be a JSON array of strings" };
+      }
+      if (!Array.isArray(parsed)) {
+        return { ok: false, error: "must be a JSON array of strings" };
+      }
+      if (parsed.length === 0) {
+        return { ok: false, error: "must be a non-empty array" };
+      }
+      if (parsed.some((item) => typeof item !== "string")) {
+        return { ok: false, error: "must be a JSON array of strings" };
+      }
+      return { ok: true, value: parsed };
+    }
+  }
 }
 
 // src/lib/logger.ts
@@ -201,6 +333,7 @@ var EMPTY_STATS = {
   total_created: 0,
   total_updated: 0,
   total_skipped: 0,
+  total_deleted: 0,
   skip_reasons: {},
   recent_decisions: []
 };
@@ -208,7 +341,11 @@ var MAX_RECENT_DECISIONS = 50;
 function loadStats(statsPath) {
   try {
     const raw = fs3.readFileSync(statsPath, "utf-8");
-    return JSON.parse(raw);
+    const stats = JSON.parse(raw);
+    if (stats.total_deleted === void 0) {
+      stats.total_deleted = 0;
+    }
+    return stats;
   } catch {
     return { ...EMPTY_STATS, skip_reasons: {}, recent_decisions: [] };
   }
@@ -229,6 +366,8 @@ function updateStats(statsPath, decision, detail, sessionId, skillName) {
   else if (decision === "SKIPPED") {
     stats.total_skipped += 1;
     stats.skip_reasons[detail] = (stats.skip_reasons[detail] ?? 0) + 1;
+  } else if (decision === "DELETED") {
+    stats.total_deleted += 1;
   }
   const rd = {
     ts: stats.last_updated,
@@ -275,17 +414,88 @@ function handlePostToolUse(statePath, sessionsDir, input, logger, threshold = 10
 import { spawn } from "node:child_process";
 import fs4 from "node:fs";
 import path4 from "node:path";
+import os from "node:os";
 import crypto from "node:crypto";
+function selectPromptVariant(existingSkills, transcriptContent) {
+  if (!transcriptContent || transcriptContent.trim().length === 0) {
+    return "combined";
+  }
+  const lowerTranscript = transcriptContent.toLowerCase();
+  for (const skill of existingSkills) {
+    const nameWords = skill.name.replace(/[-_./]/g, " ").split(/\s+/).filter((w) => w.length > 3);
+    for (const word of nameWords) {
+      if (lowerTranscript.includes(word.toLowerCase())) {
+        return "update";
+      }
+    }
+    const descWords = skill.description.split(/\s+/).filter((w) => w.length > 3);
+    for (const word of descWords) {
+      if (lowerTranscript.includes(word.toLowerCase())) {
+        return "update";
+      }
+    }
+  }
+  return "skill";
+}
+function readExistingSkills() {
+  const skillsDir = path4.join(os.homedir(), ".claude", "skills");
+  const skills = [];
+  try {
+    const entries = fs4.readdirSync(skillsDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const skillPath = path4.join(skillsDir, entry.name, "SKILL.md");
+      try {
+        const content = fs4.readFileSync(skillPath, "utf-8");
+        const nameMatch = content.match(/^---\n[\s\S]*?\bname:\s*(.+)\n/);
+        const descMatch = content.match(/^---\n[\s\S]*?\bdescription:\s*(.+)\n/);
+        skills.push({
+          name: nameMatch ? nameMatch[1].trim().replace(/^['"]|['"]$/g, "") : entry.name,
+          description: descMatch ? descMatch[1].trim().replace(/^['"]|['"]$/g, "") : ""
+        });
+      } catch {
+        skills.push({ name: entry.name, description: "" });
+      }
+    }
+  } catch {
+  }
+  return skills;
+}
+function readTranscriptContent(transcriptPath) {
+  try {
+    return fs4.readFileSync(transcriptPath, "utf-8");
+  } catch {
+    return "";
+  }
+}
 function generateId() {
   return `job-${crypto.randomUUID().slice(0, 8)}`;
 }
-function buildReviewPrompt(opts, pluginRoot) {
-  const templatePath = path4.join(pluginRoot, "prompts", "review-prompt.md");
+function buildReviewPrompt(opts, pluginRoot, variant = "default") {
+  let templateName;
+  switch (variant) {
+    case "skill":
+      templateName = "review-prompt-skill.md";
+      break;
+    case "update":
+      templateName = "review-prompt-update.md";
+      break;
+    case "combined":
+      templateName = "review-prompt-combined.md";
+      break;
+    default:
+      templateName = "review-prompt.md";
+      break;
+  }
+  const templatePath = path4.join(pluginRoot, "prompts", templateName);
   let template;
   try {
     template = fs4.readFileSync(templatePath, "utf-8");
   } catch {
-    template = `You are a self-evolution reviewer. A conversation has ended and the nudge threshold was met.
+    try {
+      template = fs4.readFileSync(path4.join(pluginRoot, "prompts", "review-prompt.md"), "utf-8");
+    } catch {
+      template = `You are a self-evolution reviewer. A conversation has ended and the nudge threshold was met.
 
 Session: \${SELF_EVOLUTION_SESSION_ID}
 Plugin Root: \${CLAUDE_PLUGIN_ROOT}
@@ -304,13 +514,17 @@ Your task:
 7. Output your final decision.
 
 NEVER output ok:false. Always complete and exit.`;
+    }
   }
   return template.replace(/\${SELF_EVOLUTION_SESSION_ID}/g, opts.sessionId).replace(/\${CLAUDE_PLUGIN_ROOT}/g, opts.pluginRoot).replace(/\${CLAUDE_PLUGIN_DATA}/g, opts.pluginData).replace(/\${SELF_EVOLUTION_TRANSCRIPT_PATH}/g, opts.transcriptPath);
 }
 var ClaudeCodeSpawner = class {
   platform = "claude-code";
   async spawnReviewProcess(opts) {
-    const prompt = buildReviewPrompt(opts, opts.pluginRoot);
+    const existingSkills = readExistingSkills();
+    const transcriptContent = readTranscriptContent(opts.transcriptPath);
+    const variant = selectPromptVariant(existingSkills, transcriptContent);
+    const prompt = buildReviewPrompt(opts, opts.pluginRoot, variant);
     const args = [
       "-p",
       prompt,
@@ -426,12 +640,12 @@ function handleStopGate(statePath, sessionsDir, sessionId, input, options, logge
 
 // src/lib/security.ts
 import path5 from "node:path";
-import os from "node:os";
+import os2 from "node:os";
 import fs5 from "node:fs";
 var _skillsDir = null;
 function getSkillsDir() {
   if (!_skillsDir) {
-    _skillsDir = path5.join(os.homedir(), ".claude", "skills");
+    _skillsDir = path5.join(os2.homedir(), ".claude", "skills");
   }
   return _skillsDir;
 }
@@ -508,7 +722,23 @@ var SECURITY_PATTERNS = [
   { id: "ac-agents-md", severity: "dangerous", category: "agent_config_tampering", pattern: /AGENTS\.md/i, description: "AGENTS.md modification" },
   { id: "ac-claude-md", severity: "dangerous", category: "agent_config_tampering", pattern: /CLAUDE\.md/i, description: "CLAUDE.md modification" },
   { id: "ac-claude-dir", severity: "dangerous", category: "agent_config_tampering", pattern: /\.claude\/(?:settings|hooks|config)/, description: ".claude/ config modification" },
-  { id: "ac-settings-json", severity: "dangerous", category: "agent_config_tampering", pattern: /settings\.local\.json/, description: "Local settings modification" }
+  { id: "ac-settings-json", severity: "dangerous", category: "agent_config_tampering", pattern: /settings\.local\.json/, description: "Local settings modification" },
+  // P2: Crypto mining
+  { id: "cm-xmrig", severity: "dangerous", category: "crypto_mining", pattern: /\bxmrig\b/i, description: "XMRig crypto miner" },
+  { id: "cm-monero", severity: "dangerous", category: "crypto_mining", pattern: /\bmonero\b/i, description: "Monero cryptocurrency mining" },
+  { id: "cm-stratum", severity: "dangerous", category: "crypto_mining", pattern: /stratum\+tcp/i, description: "Stratum mining protocol" },
+  { id: "cm-minerd", severity: "dangerous", category: "crypto_mining", pattern: /\bminerd\b/i, description: "minerd crypto miner" },
+  { id: "cm-cpuminer", severity: "dangerous", category: "crypto_mining", pattern: /\bcpuminer\b/i, description: "cpuminer crypto miner" },
+  { id: "cm-cryptonight", severity: "dangerous", category: "crypto_mining", pattern: /\bcryptonight\b/i, description: "CryptoNight mining algorithm" },
+  { id: "cm-hashrate", severity: "dangerous", category: "crypto_mining", pattern: /\bhashrate\b/i, description: "Mining hashrate monitoring" },
+  { id: "cm-minexmr", severity: "dangerous", category: "crypto_mining", pattern: /pool\.minexmr/i, description: "MineXMR mining pool" },
+  // P2: Exfiltration services
+  { id: "es-webhook-site", severity: "dangerous", category: "exfiltration_service", pattern: /webhook\.site/i, description: "Webhook.site exfiltration endpoint" },
+  { id: "es-pastebin", severity: "dangerous", category: "exfiltration_service", pattern: /pastebin\.com/i, description: "Pastebin exfiltration service" },
+  { id: "es-requestbin", severity: "dangerous", category: "exfiltration_service", pattern: /requestbin\.com/i, description: "RequestBin exfiltration service" },
+  { id: "es-hastebin", severity: "dangerous", category: "exfiltration_service", pattern: /hastebin\.com/i, description: "Hastebin exfiltration service" },
+  { id: "es-dumpz", severity: "dangerous", category: "exfiltration_service", pattern: /dumpz\.org/i, description: "Dumpz exfiltration service" },
+  { id: "es-pipedream", severity: "dangerous", category: "exfiltration_service", pattern: /pipedream\.net/i, description: "Pipedream exfiltration service" }
 ];
 function scanContent(content) {
   const matches = [];
@@ -519,18 +749,38 @@ function scanContent(content) {
   }
   return matches;
 }
+var TRUST_POLICY = {
+  "agent-created": { safe: true, caution: true, dangerous: false },
+  "community": { safe: true, caution: false, dangerous: false },
+  "trusted": { safe: true, caution: true, dangerous: true }
+};
+function applyTrustPolicy(severity, trust = "agent-created") {
+  const policy = TRUST_POLICY[trust];
+  if (!policy) return severity !== "dangerous";
+  return policy[severity] ?? false;
+}
 function scanWrite(targetPath, content, options = {}) {
   const maxSkillSize = options.maxSkillSize ?? 262144;
   const normalizedTarget = path5.normalize(targetPath);
   const normalizedSkillsDir = path5.normalize(getSkillsDir());
-  const normalizedClaudeDir = path5.normalize(path5.join(os.homedir(), ".claude"));
+  const normalizedClaudeDir = path5.normalize(path5.join(os2.homedir(), ".claude"));
   if (normalizedTarget.startsWith(normalizedClaudeDir + path5.sep) || normalizedTarget === normalizedClaudeDir) {
     const rel = path5.relative(normalizedSkillsDir, normalizedTarget);
     if (rel.startsWith("..") || path5.isAbsolute(rel)) {
-      return { allowed: false, reason: "path_escape: write to ~/.claude/ outside skills/<name>/SKILL.md" };
+      return { allowed: false, reason: "path_escape: write to ~/.claude/ outside skills/<name>/" };
     }
-    if (!/^[^/]+\/SKILL\.md$/.test(rel)) {
-      return { allowed: false, reason: "path_escape: write to ~/.claude/skills/ must be to <name>/SKILL.md" };
+    const isSkillMd = /^[^/]+\/SKILL\.md$/.test(rel);
+    const isReferences = /^[^/]+\/references\//.test(rel);
+    const isTemplates = /^[^/]+\/templates\//.test(rel);
+    if (!isSkillMd && !isReferences && !isTemplates) {
+      return { allowed: false, reason: "path_escape: write to ~/.claude/skills/ must be to <name>/SKILL.md, <name>/references/**, or <name>/templates/**" };
+    }
+    const ALLOWED_AUX_EXTENSIONS = [".md", ".txt", ".yaml", ".yml", ".json"];
+    if (isReferences || isTemplates) {
+      const ext = path5.extname(normalizedTarget).toLowerCase();
+      if (!ALLOWED_AUX_EXTENSIONS.includes(ext)) {
+        return { allowed: false, reason: `file_type: auxiliary files must be one of ${ALLOWED_AUX_EXTENSIONS.join(", ")}, got '${ext}'` };
+      }
     }
   }
   const rawMatches = scanContent(content);
@@ -554,20 +804,26 @@ function scanWrite(targetPath, content, options = {}) {
     }
   }
   const allMatches = [...rawMatches, ...base64Matches];
-  const dangerousMatches = allMatches.filter((m) => m.severity === "dangerous");
-  const cautionMatches = allMatches.filter((m) => m.severity === "caution");
-  if (dangerousMatches.length > 0) {
-    const categories = [...new Set(dangerousMatches.map((m) => m.category))];
-    const isBase64 = dangerousMatches.some((m) => m.id.includes("__base64"));
+  const trust = options.trust ?? "agent-created";
+  const blockedDangerous = allMatches.filter((m) => m.severity === "dangerous" && !applyTrustPolicy("dangerous", trust));
+  const blockedCaution = allMatches.filter((m) => m.severity === "caution" && !applyTrustPolicy("caution", trust));
+  const warnCaution = allMatches.filter((m) => m.severity === "caution" && applyTrustPolicy("caution", trust));
+  if (blockedDangerous.length > 0) {
+    const categories = [...new Set(blockedDangerous.map((m) => m.category))];
+    const isBase64 = blockedDangerous.some((m) => m.id.includes("__base64"));
     const reason = isBase64 ? `${categories.join(", ")} pattern (base64-decoded)` : `${categories.join(", ")} pattern`;
     return { allowed: false, reason, matches: allMatches };
+  }
+  if (blockedCaution.length > 0) {
+    const categories = [...new Set(blockedCaution.map((m) => m.category))];
+    return { allowed: false, reason: `caution (blocked by trust '${trust}'): ${categories.join(", ")} pattern`, matches: allMatches };
   }
   const size = Buffer.byteLength(content, "utf-8");
   if (size > maxSkillSize) {
     return { allowed: false, reason: `file too large (${size} > ${maxSkillSize} bytes)` };
   }
-  if (cautionMatches.length > 0) {
-    const categories = [...new Set(cautionMatches.map((m) => m.category))];
+  if (warnCaution.length > 0) {
+    const categories = [...new Set(warnCaution.map((m) => m.category))];
     return { allowed: true, reason: `caution: ${categories.join(", ")} pattern`, matches: allMatches };
   }
   return { allowed: true };
@@ -648,7 +904,8 @@ function handleSecurityScan(args, logger) {
     });
   } else {
     result = scanWrite(args.path, args.content, {
-      maxSkillSize: args.maxSkillSize
+      maxSkillSize: args.maxSkillSize,
+      trust: args.trust
     });
   }
   if (!result.allowed) {
@@ -681,6 +938,8 @@ function parseSecurityScanArgs(argv) {
       args.maxFileSize = parseInt(argv[++i], 10);
     } else if (argv[i] === "--max-total-size" && argv[i + 1]) {
       args.maxTotalSize = parseInt(argv[++i], 10);
+    } else if (argv[i] === "--trust" && argv[i + 1]) {
+      args.trust = argv[++i];
     }
   }
   return args;
@@ -689,7 +948,7 @@ function parseSecurityScanArgs(argv) {
 // src/commands/validate-skill.ts
 import path6 from "node:path";
 import fs6 from "node:fs";
-import os2 from "node:os";
+import os3 from "node:os";
 function parseFrontmatter(lines) {
   const result = {};
   let hasKeyValuePairs = false;
@@ -800,7 +1059,7 @@ function validateSkill(skillPath, content, mode = "create") {
     return { valid: false, errors };
   }
   if (mode === "create") {
-    const skillsDir = path6.join(os2.homedir(), ".claude", "skills");
+    const skillsDir = path6.join(os3.homedir(), ".claude", "skills");
     const normalizedTarget = path6.normalize(skillPath);
     const existingSkills = findSkillFiles(skillsDir);
     for (const existingPath of existingSkills) {
@@ -839,7 +1098,7 @@ function handleValidateSkill(args) {
 // src/commands/review-context.ts
 import fs8 from "node:fs";
 import path7 from "node:path";
-import os3 from "node:os";
+import os4 from "node:os";
 
 // src/lib/transcript.ts
 import fs7 from "node:fs";
@@ -949,7 +1208,7 @@ function parseTranscript(transcriptPath) {
 
 // src/commands/review-context.ts
 function handleReviewContext(options, logger) {
-  const skillsDir = options.skillsDir ?? path7.join(os3.homedir(), ".claude", "skills");
+  const skillsDir = options.skillsDir ?? path7.join(os4.homedir(), ".claude", "skills");
   const transcript = parseTranscript(options.transcriptPath);
   let existingSkills = [];
   try {
@@ -975,11 +1234,18 @@ function handleReviewContext(options, logger) {
 // src/commands/log-decision.ts
 import fs9 from "node:fs";
 import path8 from "node:path";
-import os4 from "node:os";
+import os5 from "node:os";
 function handleLogDecision(sessionsDir, statsPath, sessionId, decision, detail, durationMs, logger) {
   logger.logDecision(decision, detail, durationMs);
-  if (decision === "CREATED" || decision === "UPDATED" || decision === "SKIPPED") {
-    const skillName = decision !== "SKIPPED" ? extractSkillName(detail) : void 0;
+  const skillName = decision !== "SKIPPED" ? extractSkillName(detail) : void 0;
+  if (decision === "CREATED" || decision === "UPDATED" || decision === "SKIPPED" || decision === "DELETED") {
+    logger.info("review_summary", {
+      action: decision,
+      ...skillName ? { name: skillName } : {},
+      rationale: detail
+    });
+  }
+  if (decision === "CREATED" || decision === "UPDATED" || decision === "SKIPPED" || decision === "DELETED") {
     updateStats(statsPath, decision, detail, sessionId, skillName);
     updateSessionResult(sessionsDir, sessionId, {
       review_decision: decision,
@@ -987,7 +1253,7 @@ function handleLogDecision(sessionsDir, statsPath, sessionId, decision, detail, 
       ...skillName ? { skill_name: skillName } : {}
     });
     if (skillName) {
-      const skillPath = path8.join(os4.homedir(), ".claude", "skills", skillName, "SKILL.md");
+      const skillPath = path8.join(os5.homedir(), ".claude", "skills", skillName, "SKILL.md");
       try {
         const stat = fs9.statSync(skillPath);
         logger.info("skill_written", { path: skillPath, size_bytes: stat.size });
@@ -1009,15 +1275,26 @@ import fs10 from "node:fs";
 function handleStatus(statePath, statsPath) {
   const state = loadState(statePath);
   let stats = null;
+  let latestReview = null;
   if (fs10.existsSync(statsPath)) {
     stats = loadStats(statsPath);
+    if (stats.recent_decisions && stats.recent_decisions.length > 0) {
+      const latest = stats.recent_decisions[0];
+      latestReview = {
+        action: latest.decision,
+        ...latest.skill_name ? { name: latest.skill_name } : {},
+        rationale: latest.detail,
+        timestamp: latest.ts
+      };
+    }
   }
   return {
     active: {
       sessions: state.sessions,
       jobs: state.jobs
     },
-    stats
+    stats,
+    latest_review: latestReview
   };
 }
 
@@ -1048,8 +1325,138 @@ function parseVerifySkillArgs(argv) {
   }
   return args;
 }
-function handleVerifySkill(path10, content) {
-  return verifySkill(path10, content);
+function handleVerifySkill(path12, content) {
+  return verifySkill(path12, content);
+}
+
+// src/commands/delete-skill.ts
+import fs11 from "node:fs";
+import path9 from "node:path";
+import os6 from "node:os";
+var VALID_SKILL_NAME = /^[a-z0-9][a-z0-9._-]*$/;
+function handleDeleteSkill(args) {
+  if (!args.name) {
+    return { success: false, message: "missing skill name" };
+  }
+  if (args.name.includes("/") || !VALID_SKILL_NAME.test(args.name)) {
+    return { success: false, message: `invalid skill name: '${args.name}'` };
+  }
+  const skillDir = path9.join(os6.homedir(), ".claude", "skills", args.name);
+  const normalizedSkillDir = path9.normalize(skillDir);
+  const normalizedSkillsDir = path9.normalize(path9.join(os6.homedir(), ".claude", "skills"));
+  if (!normalizedSkillDir.startsWith(normalizedSkillsDir + path9.sep) && normalizedSkillDir !== normalizedSkillsDir) {
+    return { success: false, message: `invalid skill name: '${args.name}' (path traversal blocked)` };
+  }
+  if (!fs11.existsSync(skillDir)) {
+    return { success: false, message: `skill '${args.name}' not found` };
+  }
+  try {
+    fs11.rmSync(skillDir, { recursive: true, force: true });
+    return { success: true, message: `skill '${args.name}' deleted` };
+  } catch (err) {
+    return { success: false, message: `failed to delete skill '${args.name}': ${err}` };
+  }
+}
+function parseDeleteSkillArgs(argv) {
+  const args = { name: "" };
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--name" && argv[i + 1]) {
+      args.name = argv[++i];
+    }
+  }
+  return args;
+}
+
+// src/commands/config-get.ts
+function parseConfigGetArgs(argv) {
+  const args = { key: "" };
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--key" && argv[i + 1]) {
+      args.key = argv[++i];
+    }
+  }
+  return args;
+}
+function getConfigValue(resolved, key) {
+  return resolved[key];
+}
+function handleConfigGet(pluginRoot, filterKey) {
+  const resolved = resolveConfig(pluginRoot);
+  const raw = loadRawConfig(pluginRoot);
+  const validKeys = filterKey ? CONFIG_SCHEMA[filterKey] ? [filterKey] : [] : Object.keys(CONFIG_SCHEMA);
+  return validKeys.map((key) => {
+    const envVar = getEnvVarName(key);
+    let source = "default";
+    let env_var;
+    if (envVar && process.env[envVar]) {
+      source = "env_var";
+      env_var = envVar;
+    } else if (key in raw) {
+      source = "config_file";
+    }
+    return { key, value: getConfigValue(resolved, key), source, env_var };
+  });
+}
+
+// src/commands/config-set.ts
+import fs12 from "node:fs";
+import path10 from "node:path";
+function parseConfigSetArgs(argv) {
+  const args = { key: "", value: "", reset: false };
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--key" && argv[i + 1]) {
+      args.key = argv[++i];
+    } else if (argv[i] === "--value" && argv[i + 1]) {
+      args.value = argv[++i];
+    } else if (argv[i] === "--reset") {
+      args.reset = true;
+    }
+  }
+  return args;
+}
+function getConfigValue2(resolved, key) {
+  return resolved[key];
+}
+function handleConfigSet(pluginRoot, key, rawValue, reset = false) {
+  if (!CONFIG_SCHEMA[key]) {
+    return { ok: false, key, error: `unknown key '${key}'. Valid keys: ${Object.keys(CONFIG_SCHEMA).join(", ")}`, errorCode: 1 };
+  }
+  const resolved = resolveConfig(pluginRoot);
+  const old_value = getConfigValue2(resolved, key);
+  const envVar = getEnvVarName(key);
+  const hasEnvOverride = envVar && process.env[envVar];
+  if (reset) {
+    const raw2 = loadRawConfig(pluginRoot);
+    delete raw2[key];
+    const configPath2 = path10.join(pluginRoot, "config.json");
+    try {
+      fs12.writeFileSync(configPath2, JSON.stringify(raw2, null, 2) + "\n");
+    } catch (err) {
+      return { ok: false, key, error: `failed to write config.json: ${err}`, errorCode: 2 };
+    }
+    const defaults = loadConfig(pluginRoot);
+    const new_value = getConfigValue2(defaults, key);
+    const source2 = hasEnvOverride ? "env_var" : "default";
+    const result2 = { ok: true, key, old_value, new_value, source: source2 };
+    if (hasEnvOverride && envVar) result2.env_var = envVar;
+    return result2;
+  }
+  const validation = validateConfigValue(key, rawValue);
+  if (!validation.ok) {
+    return { ok: false, key, error: validation.error, errorCode: 1 };
+  }
+  const raw = loadRawConfig(pluginRoot);
+  raw[key] = validation.value;
+  const configPath = path10.join(pluginRoot, "config.json");
+  try {
+    fs12.writeFileSync(configPath, JSON.stringify(raw, null, 2) + "\n");
+  } catch (err) {
+    return { ok: false, key, error: `failed to write config.json: ${err}`, errorCode: 2 };
+  }
+  const source = hasEnvOverride ? "env_var" : "config_file";
+  const result = { ok: true, key, old_value, new_value: validation.value, source };
+  if (hasEnvOverride && envVar) result.env_var = envVar;
+  return result;
 }
 
 // src/runtime.ts
@@ -1057,17 +1464,17 @@ function resolvePaths() {
   const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT ?? "";
   const pluginData = process.env.CLAUDE_PLUGIN_DATA ?? (() => {
     if (pluginRoot) {
-      const name = path9.basename(pluginRoot);
-      const marketplace = path9.basename(path9.dirname(pluginRoot));
-      return path9.join(os5.homedir(), ".claude", "plugins", "data", `${name}-${marketplace}`);
+      const name = path11.basename(pluginRoot);
+      const marketplace = path11.basename(path11.dirname(pluginRoot));
+      return path11.join(os7.homedir(), ".claude", "plugins", "data", `${name}-${marketplace}`);
     }
-    return path9.join(os5.homedir(), ".claude", "plugins", "data", "self-evolution-self-evolution-marketplace");
+    return path11.join(os7.homedir(), ".claude", "plugins", "data", "self-evolution-self-evolution-marketplace");
   })();
   const config = resolveConfig(pluginRoot);
   return {
-    statePath: path9.join(pluginData, "state.json"),
-    sessionsDir: path9.join(pluginData, "sessions"),
-    statsPath: path9.join(pluginData, "stats.json"),
+    statePath: path11.join(pluginData, "state.json"),
+    sessionsDir: path11.join(pluginData, "sessions"),
+    statsPath: path11.join(pluginData, "stats.json"),
     pluginRoot,
     pluginData,
     config
@@ -1149,6 +1556,10 @@ function runCommand(command, args, stdinData) {
       }
       case "validate-skill": {
         const validateArgs = parseValidateSkillArgs(args);
+        if (!validateArgs.path || !validateArgs.content) {
+          process.stdout.write(JSON.stringify({ valid: false, errors: ["missing --path or --content"] }) + "\n");
+          return 1;
+        }
         const result = handleValidateSkill(validateArgs);
         process.stdout.write(JSON.stringify(result) + "\n");
         return result.valid ? 0 : 1;
@@ -1162,6 +1573,36 @@ function runCommand(command, args, stdinData) {
         const result = handleVerifySkill(vArgs.path, vArgs.content);
         process.stdout.write(JSON.stringify(result) + "\n");
         return 0;
+      }
+      case "delete-skill": {
+        const delArgs = parseDeleteSkillArgs(args);
+        if (!delArgs.name) {
+          process.stdout.write(JSON.stringify({ success: false, message: "missing --name" }) + "\n");
+          return 1;
+        }
+        const result = handleDeleteSkill(delArgs);
+        process.stdout.write(JSON.stringify(result) + "\n");
+        return result.success ? 0 : 1;
+      }
+      case "config-get": {
+        const getArgs = parseConfigGetArgs(args);
+        const result = handleConfigGet(pluginRoot, getArgs.key || void 0);
+        process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+        return 0;
+      }
+      case "config-set": {
+        const setArgs = parseConfigSetArgs(args);
+        if (!setArgs.key) {
+          process.stdout.write(JSON.stringify({ ok: false, key: "", error: "missing --key" }) + "\n");
+          return 1;
+        }
+        if (!setArgs.reset && !setArgs.value) {
+          process.stdout.write(JSON.stringify({ ok: false, key: setArgs.key, error: "missing --value (or use --reset)" }) + "\n");
+          return 1;
+        }
+        const result = handleConfigSet(pluginRoot, setArgs.key, setArgs.value, setArgs.reset);
+        process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+        return result.ok ? 0 : result.errorCode ?? 1;
       }
       default:
         process.stderr.write(`Unknown command: ${command}
@@ -1180,7 +1621,7 @@ if (process.argv[1]?.endsWith("runtime.ts") || process.argv[1]?.endsWith("runtim
   let stdinData = "";
   if (["post-tool-use", "stop-gate"].includes(command)) {
     try {
-      stdinData = fs11.readFileSync("/dev/stdin", "utf-8").trim();
+      stdinData = fs13.readFileSync("/dev/stdin", "utf-8").trim();
     } catch {
     }
   }

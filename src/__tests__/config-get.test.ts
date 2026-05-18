@@ -49,6 +49,7 @@ describe("handleConfigGet", () => {
     const logLevel = result.find((r) => r.key === "log_level")!;
     expect(logLevel.value).toBe("off");
     expect(logLevel.source).toBe("env_var");
+    expect(logLevel.env_var).toBe("SELF_EVOLUTION_LOG_LEVEL");
   });
 
   it("env_var source takes precedence over config_file", () => {
@@ -74,5 +75,11 @@ describe("handleConfigGet", () => {
   it("with invalid key returns empty array", () => {
     const result = handleConfigGet(tmpDir, "nonexistent");
     expect(result).toHaveLength(0);
+  });
+
+  it("does not include env_var field when source is default", () => {
+    const result = handleConfigGet(tmpDir);
+    const logLevel = result.find((r) => r.key === "log_level")!;
+    expect(logLevel.env_var).toBeUndefined();
   });
 });

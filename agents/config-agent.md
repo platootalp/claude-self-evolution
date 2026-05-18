@@ -16,7 +16,9 @@ Read config:
   node "${CLAUDE_PLUGIN_ROOT}/dist/runtime.mjs" config-get [--key <key>]
 
 Write config:
-  node "${CLAUDE_PLUGIN_ROOT}/dist/runtime.mjs" config-set --key <key> --value <value> [--reset]
+  node "${CLAUDE_PLUGIN_ROOT}/dist/runtime.mjs" config-set --key <key> --value '<value>' [--reset]
+
+Always wrap the --value argument in single quotes when calling config-set via Bash to avoid shell expansion issues.
 
 ## Settings Schema
 

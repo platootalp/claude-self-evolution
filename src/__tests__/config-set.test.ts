@@ -97,6 +97,20 @@ describe("handleConfigSet", () => {
     expect(written.nudge_interval).toBe(5);
   });
 
+  it("reset returns default value as new_value", () => {
+    fs.writeFileSync(path.join(tmpDir, "config.json"), JSON.stringify({ log_level: "debug" }));
+    const result = handleConfigSet(tmpDir, "log_level", "", true);
+    expect(result.ok).toBe(true);
+    expect(result.new_value).toBe("info");
+  });
+
+  it("reset returns default source when no env var", () => {
+    fs.writeFileSync(path.join(tmpDir, "config.json"), JSON.stringify({ log_level: "debug" }));
+    const result = handleConfigSet(tmpDir, "log_level", "", true);
+    expect(result.ok).toBe(true);
+    expect(result.source).toBe("default");
+  });
+
   it("reports old_value when changing existing key", () => {
     fs.writeFileSync(path.join(tmpDir, "config.json"), JSON.stringify({ log_level: "debug" }));
     const result = handleConfigSet(tmpDir, "log_level", "off");
@@ -115,11 +129,33 @@ describe("handleConfigSet", () => {
     const result = handleConfigSet(tmpDir, "log_level", "debug");
     expect(result.ok).toBe(true);
     expect(result.source).toBe("env_var");
+    expect(result.env_var).toBe("SELF_EVOLUTION_LOG_LEVEL");
   });
 
   it("writes pretty-printed JSON", () => {
     handleConfigSet(tmpDir, "log_level", "debug");
     const content = fs.readFileSync(path.join(tmpDir, "config.json"), "utf-8");
     expect(content).toContain("\n");
+  });
+
+  it("returns errorCode 1 for validation errors", () => {
+    const result = handleConfigSet(tmpDir, "log_level", "verbose");
+    expect(result.ok).toBe(false);
+    expect(result.errorCode).toBe(1);
+  });
+
+  it("returns errorCode 1 for unknown key", () => {
+    const result = handleConfigSet(tmpDir, "nonexistent", "foo");
+    expect(result.ok).toBe(false);
+    expect(result.errorCode).toBe(1);
+  });
+
+  it("returns errorCode 2 for write errors", () => {
+    const readOnlyDir = path.join(tmpDir, "readonly");
+    fs.mkdirSync(readOnlyDir);
+    fs.chmodSync(readOnlyDir, 0o444);
+    const result = handleConfigSet(readOnlyDir, "log_level", "debug");
+    expect(result.ok).toBe(false);
+    expect(result.errorCode).toBe(2);
   });
 });
