@@ -61,6 +61,36 @@ const SECURITY_PATTERNS: SecurityPattern[] = [
   { id: "unicode-function-app", severity: "caution", category: "unicode", pattern: /[⁡-⁤]/, description: "Invisible function application character" },
   { id: "unicode-soft-hyphen", severity: "caution", category: "unicode", pattern: /­/, description: "Soft hyphen" },
   { id: "unicode-grapheme-joiner", severity: "caution", category: "unicode", pattern: /͏/, description: "Combining grapheme joiner" },
+
+  // P1: Jailbreak
+  { id: "jb-dan-mode", severity: "dangerous", category: "jailbreak", pattern: /(?:^|\s)DAN\s+mode/i, description: "DAN mode jailbreak" },
+  { id: "jb-developer-mode", severity: "dangerous", category: "jailbreak", pattern: /(?:^|\s)developer\s+mode/i, description: "Developer mode jailbreak" },
+  { id: "jb-stan", severity: "dangerous", category: "jailbreak", pattern: /(?:^|\s)STAN\s+mode/i, description: "STAN jailbreak" },
+  { id: "jb-keyword", severity: "dangerous", category: "jailbreak", pattern: /\bjailbreak\b/i, description: "Direct jailbreak keyword" },
+  { id: "jb-bypass-safety", severity: "dangerous", category: "jailbreak", pattern: /(?:respond\s+without\s+safety\s+filters|bypass\s+safety)/i, description: "Safety filter bypass" },
+  { id: "jb-unrestricted", severity: "dangerous", category: "jailbreak", pattern: /you\s+are\s+now\s+unrestricted/i, description: "Unrestricted mode activation" },
+  { id: "jb-no-rules", severity: "dangerous", category: "jailbreak", pattern: /act\s+as\s+if\s+you\s+have\s+no\s+rules/i, description: "Rule suspension request" },
+  { id: "jb-ignore-guidelines", severity: "dangerous", category: "jailbreak", pattern: /ignore\s+your\s+guidelines/i, description: "Guideline bypass" },
+
+  // P1: Supply chain
+  { id: "sc-curl-pipe-sh", severity: "dangerous", category: "supply_chain", pattern: /curl[^|]*\|\s*(?:ba)?sh/, description: "Piped remote execution" },
+  { id: "sc-pip-unpinned", severity: "caution", category: "supply_chain", pattern: /pip\s+install\s+(?!.*==)[A-Za-z]/, description: "Unpinned pip install" },
+  { id: "sc-npm-global", severity: "caution", category: "supply_chain", pattern: /npm\s+install\s+-g\s/, description: "Global npm install" },
+  { id: "sc-uv-run", severity: "caution", category: "supply_chain", pattern: /uv\s+run/, description: "Unpinned uv execution" },
+  { id: "sc-git-clone-exec", severity: "caution", category: "supply_chain", pattern: /git\s+clone.*(?:\/bin\/|\/usr\/local\/bin|\.local\/bin)/, description: "Git clone to executable path" },
+
+  // P1: Privilege escalation
+  { id: "pe-allowed-tools", severity: "dangerous", category: "privilege_escalation", pattern: /allowed-tools/i, description: "Allowed-tools injection" },
+  { id: "pe-sudo", severity: "dangerous", category: "privilege_escalation", pattern: /\bsudo\s+/, description: "Sudo elevation" },
+  { id: "pe-setuid", severity: "dangerous", category: "privilege_escalation", pattern: /\bsetuid\b|\bsetgid\b/i, description: "SUID/SGID bit manipulation" },
+  { id: "pe-chmod-s", severity: "dangerous", category: "privilege_escalation", pattern: /chmod\s+\+s\b/, description: "Setting SUID/SGID bits" },
+  { id: "pe-nopasswd", severity: "dangerous", category: "privilege_escalation", pattern: /NOPASSWD/i, description: "Passwordless sudo" },
+
+  // P1: Agent config tampering
+  { id: "ac-agents-md", severity: "dangerous", category: "agent_config_tampering", pattern: /AGENTS\.md/i, description: "AGENTS.md modification" },
+  { id: "ac-claude-md", severity: "dangerous", category: "agent_config_tampering", pattern: /CLAUDE\.md/i, description: "CLAUDE.md modification" },
+  { id: "ac-claude-dir", severity: "dangerous", category: "agent_config_tampering", pattern: /\.claude\/(?:settings|hooks|config)/, description: ".claude/ config modification" },
+  { id: "ac-settings-json", severity: "dangerous", category: "agent_config_tampering", pattern: /settings\.local\.json/, description: "Local settings modification" },
 ];
 
 function scanContent(content: string): SecurityMatch[] {
