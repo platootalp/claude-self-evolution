@@ -44,6 +44,8 @@ export interface SecurityMatch {
   description: string;
 }
 
+export type TrustLevel = "agent-created" | "community" | "trusted";
+
 // ─── Transcript ─────────────────────────────────────────────────────
 
 export interface TranscriptToolCall {

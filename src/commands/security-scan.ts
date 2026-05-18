@@ -10,6 +10,7 @@ interface SecurityScanArgs {
   maxFiles?: number;
   maxFileSize?: number;
   maxTotalSize?: number;
+  trust?: string;
 }
 
 export function handleSecurityScan(args: SecurityScanArgs, logger?: Logger): ScanResult {
@@ -24,6 +25,7 @@ export function handleSecurityScan(args: SecurityScanArgs, logger?: Logger): Sca
   } else {
     result = scanWrite(args.path, args.content, {
       maxSkillSize: args.maxSkillSize,
+      trust: args.trust,
     });
   }
 
@@ -58,6 +60,8 @@ export function parseSecurityScanArgs(argv: string[]): SecurityScanArgs {
       args.maxFileSize = parseInt(argv[++i], 10);
     } else if (argv[i] === "--max-total-size" && argv[i + 1]) {
       args.maxTotalSize = parseInt(argv[++i], 10);
+    } else if (argv[i] === "--trust" && argv[i + 1]) {
+      args.trust = argv[++i];
     }
   }
   return args;

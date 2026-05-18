@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { scanWrite, scanDirectory } from "../lib/security.js";
+import { scanWrite, scanDirectory, applyTrustPolicy } from "../lib/security.js";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -534,6 +534,56 @@ describe("security scanWrite", () => {
     const result = scanWrite(path.join(SKILLS_DIR, "es-hastebin", "SKILL.md"), "Share via hastebin.com");
     expect(result.allowed).toBe(false);
     expect(result.reason).toContain("exfiltration_service");
+  });
+
+  // Trust policy integration in scanWrite
+  it("scanWrite blocks dangerous with default trust (agent-created)", () => {
+    const result = scanWrite(path.join(SKILLS_DIR, "trust1", "SKILL.md"), "sudo evil", { trust: "agent-created" });
+    expect(result.allowed).toBe(false);
+  });
+
+  it("scanWrite allows dangerous with trusted trust level", () => {
+    const result = scanWrite(path.join(SKILLS_DIR, "trust2", "SKILL.md"), "sudo legitimate", { trust: "trusted" });
+    expect(result.allowed).toBe(true);
+  });
+
+  it("scanWrite blocks caution with community trust level", () => {
+    const result = scanWrite(path.join(SKILLS_DIR, "trust3", "SKILL.md"), "pip install unpinned-pkg", { trust: "community" });
+    expect(result.allowed).toBe(false);
+  });
+});
+
+describe("applyTrustPolicy", () => {
+  it("allows safe severity for agent-created trust", () => {
+    expect(applyTrustPolicy("safe", "agent-created")).toBe(true);
+  });
+
+  it("allows caution severity for agent-created trust", () => {
+    expect(applyTrustPolicy("caution", "agent-created")).toBe(true);
+  });
+
+  it("blocks dangerous severity for agent-created trust", () => {
+    expect(applyTrustPolicy("dangerous", "agent-created")).toBe(false);
+  });
+
+  it("defaults to agent-created trust when not specified", () => {
+    expect(applyTrustPolicy("dangerous")).toBe(false);
+  });
+
+  it("allows safe for any trust level", () => {
+    expect(applyTrustPolicy("safe", "community")).toBe(true);
+  });
+
+  it("blocks caution for community trust", () => {
+    expect(applyTrustPolicy("caution", "community")).toBe(false);
+  });
+
+  it("allows dangerous for trusted trust", () => {
+    expect(applyTrustPolicy("dangerous", "trusted")).toBe(true);
+  });
+
+  it("returns false for dangerous with unknown trust level", () => {
+    expect(applyTrustPolicy("dangerous", "unknown-level")).toBe(false);
   });
 });
 

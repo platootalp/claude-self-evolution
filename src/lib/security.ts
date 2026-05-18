@@ -1,7 +1,7 @@
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
-import type { ScanResult, SecurityPattern, SecurityMatch } from "../types.js";
+import type { ScanResult, SecurityPattern, SecurityMatch, TrustLevel } from "../types.js";
 
 // Lazy-loaded to support test mocking
 let _skillsDir: string | null = null;
@@ -131,8 +131,26 @@ function scanContent(content: string): SecurityMatch[] {
   return matches;
 }
 
+// ─── Trust Policy ──────────────────────────────────────────────────────
+
+const TRUST_POLICY: Record<string, Record<string, boolean>> = {
+  "agent-created": { safe: true, caution: true, dangerous: false },
+  "community": { safe: true, caution: false, dangerous: false },
+  "trusted": { safe: true, caution: true, dangerous: true },
+};
+
+export function applyTrustPolicy(
+  severity: "safe" | "caution" | "dangerous",
+  trust: string = "agent-created"
+): boolean {
+  const policy = TRUST_POLICY[trust];
+  if (!policy) return severity !== "dangerous";
+  return policy[severity] ?? false;
+}
+
 interface ScanOptions {
   maxSkillSize?: number;
+  trust?: string;
 }
 
 export function scanWrite(
@@ -184,17 +202,24 @@ export function scanWrite(
 
   const allMatches = [...rawMatches, ...base64Matches];
 
-  // 4. Determine result based on matches
-  const dangerousMatches = allMatches.filter((m) => m.severity === "dangerous");
-  const cautionMatches = allMatches.filter((m) => m.severity === "caution");
+  // 4. Determine result based on matches and trust policy
+  const trust = options.trust ?? "agent-created";
+  const blockedDangerous = allMatches.filter((m) => m.severity === "dangerous" && !applyTrustPolicy("dangerous", trust));
+  const blockedCaution = allMatches.filter((m) => m.severity === "caution" && !applyTrustPolicy("caution", trust));
+  const warnCaution = allMatches.filter((m) => m.severity === "caution" && applyTrustPolicy("caution", trust));
 
-  if (dangerousMatches.length > 0) {
-    const categories = [...new Set(dangerousMatches.map((m) => m.category))];
-    const isBase64 = dangerousMatches.some((m) => m.id.includes("__base64"));
+  if (blockedDangerous.length > 0) {
+    const categories = [...new Set(blockedDangerous.map((m) => m.category))];
+    const isBase64 = blockedDangerous.some((m) => m.id.includes("__base64"));
     const reason = isBase64
       ? `${categories.join(", ")} pattern (base64-decoded)`
       : `${categories.join(", ")} pattern`;
     return { allowed: false, reason, matches: allMatches };
+  }
+
+  if (blockedCaution.length > 0) {
+    const categories = [...new Set(blockedCaution.map((m) => m.category))];
+    return { allowed: false, reason: `caution (blocked by trust '${trust}'): ${categories.join(", ")} pattern`, matches: allMatches };
   }
 
   // 5. Size limit
@@ -203,9 +228,9 @@ export function scanWrite(
     return { allowed: false, reason: `file too large (${size} > ${maxSkillSize} bytes)` };
   }
 
-  // 6. Caution matches: allowed but with warning
-  if (cautionMatches.length > 0) {
-    const categories = [...new Set(cautionMatches.map((m) => m.category))];
+  // 6. Caution matches: allowed but with warning (only if trust policy permits)
+  if (warnCaution.length > 0) {
+    const categories = [...new Set(warnCaution.map((m) => m.category))];
     return { allowed: true, reason: `caution: ${categories.join(", ")} pattern`, matches: allMatches };
   }
 
