@@ -40,7 +40,7 @@ describe("parseConfigSetArgs", () => {
 
 describe("handleConfigSet", () => {
   it("sets a valid value and creates config.json", () => {
-    const result = handleConfigSet(tmpDir, "log_level", "debug");
+    const result = handleConfigSet(tmpDir, tmpDir, "log_level", "debug");
     expect(result.ok).toBe(true);
     expect(result.key).toBe("log_level");
     expect(result.new_value).toBe("debug");
@@ -50,7 +50,7 @@ describe("handleConfigSet", () => {
 
   it("updates existing config.json preserving other keys", () => {
     fs.writeFileSync(path.join(tmpDir, "config.json"), JSON.stringify({ nudge_interval: 5 }));
-    const result = handleConfigSet(tmpDir, "log_level", "off");
+    const result = handleConfigSet(tmpDir, tmpDir, "log_level", "off");
     expect(result.ok).toBe(true);
     const written = JSON.parse(fs.readFileSync(path.join(tmpDir, "config.json"), "utf-8"));
     expect(written.log_level).toBe("off");
@@ -58,31 +58,31 @@ describe("handleConfigSet", () => {
   });
 
   it("rejects invalid key", () => {
-    const result = handleConfigSet(tmpDir, "nonexistent", "foo");
+    const result = handleConfigSet(tmpDir, tmpDir, "nonexistent", "foo");
     expect(result.ok).toBe(false);
     expect(result.error).toContain("unknown key");
   });
 
   it("rejects invalid value for enum", () => {
-    const result = handleConfigSet(tmpDir, "log_level", "verbose");
+    const result = handleConfigSet(tmpDir, tmpDir, "log_level", "verbose");
     expect(result.ok).toBe(false);
     expect(result.error).toContain("off");
   });
 
   it("rejects out-of-range int value", () => {
-    const result = handleConfigSet(tmpDir, "nudge_interval", "0");
+    const result = handleConfigSet(tmpDir, tmpDir, "nudge_interval", "0");
     expect(result.ok).toBe(false);
     expect(result.error).toContain(">=");
   });
 
   it("sets int value correctly", () => {
-    const result = handleConfigSet(tmpDir, "nudge_interval", "5");
+    const result = handleConfigSet(tmpDir, tmpDir, "nudge_interval", "5");
     expect(result.ok).toBe(true);
     expect(result.new_value).toBe(5);
   });
 
   it("sets array value correctly", () => {
-    const result = handleConfigSet(tmpDir, "category_whitelist", '["debug","test"]');
+    const result = handleConfigSet(tmpDir, tmpDir, "category_whitelist", '["debug","test"]');
     expect(result.ok).toBe(true);
     const written = JSON.parse(fs.readFileSync(path.join(tmpDir, "config.json"), "utf-8"));
     expect(written.category_whitelist).toEqual(["debug", "test"]);
@@ -90,7 +90,7 @@ describe("handleConfigSet", () => {
 
   it("resets a key by removing it from config.json", () => {
     fs.writeFileSync(path.join(tmpDir, "config.json"), JSON.stringify({ log_level: "debug", nudge_interval: 5 }));
-    const result = handleConfigSet(tmpDir, "log_level", "", true);
+    const result = handleConfigSet(tmpDir, tmpDir, "log_level", "", true);
     expect(result.ok).toBe(true);
     const written = JSON.parse(fs.readFileSync(path.join(tmpDir, "config.json"), "utf-8"));
     expect(written.log_level).toBeUndefined();
@@ -99,53 +99,53 @@ describe("handleConfigSet", () => {
 
   it("reset returns default value as new_value", () => {
     fs.writeFileSync(path.join(tmpDir, "config.json"), JSON.stringify({ log_level: "debug" }));
-    const result = handleConfigSet(tmpDir, "log_level", "", true);
+    const result = handleConfigSet(tmpDir, tmpDir, "log_level", "", true);
     expect(result.ok).toBe(true);
     expect(result.new_value).toBe("info");
   });
 
   it("reset returns default source when no env var", () => {
     fs.writeFileSync(path.join(tmpDir, "config.json"), JSON.stringify({ log_level: "debug" }));
-    const result = handleConfigSet(tmpDir, "log_level", "", true);
+    const result = handleConfigSet(tmpDir, tmpDir, "log_level", "", true);
     expect(result.ok).toBe(true);
     expect(result.source).toBe("default");
   });
 
   it("reports old_value when changing existing key", () => {
     fs.writeFileSync(path.join(tmpDir, "config.json"), JSON.stringify({ log_level: "debug" }));
-    const result = handleConfigSet(tmpDir, "log_level", "off");
+    const result = handleConfigSet(tmpDir, tmpDir, "log_level", "off");
     expect(result.ok).toBe(true);
     expect(result.old_value).toBe("debug");
   });
 
   it("reports default as old_value when key not in config.json", () => {
-    const result = handleConfigSet(tmpDir, "log_level", "debug");
+    const result = handleConfigSet(tmpDir, tmpDir, "log_level", "debug");
     expect(result.ok).toBe(true);
     expect(result.old_value).toBe("info");
   });
 
   it("reports env_var source when env var is active", () => {
     process.env.SELF_EVOLUTION_LOG_LEVEL = "off";
-    const result = handleConfigSet(tmpDir, "log_level", "debug");
+    const result = handleConfigSet(tmpDir, tmpDir, "log_level", "debug");
     expect(result.ok).toBe(true);
     expect(result.source).toBe("env_var");
     expect(result.env_var).toBe("SELF_EVOLUTION_LOG_LEVEL");
   });
 
   it("writes pretty-printed JSON", () => {
-    handleConfigSet(tmpDir, "log_level", "debug");
+    handleConfigSet(tmpDir, tmpDir, "log_level", "debug");
     const content = fs.readFileSync(path.join(tmpDir, "config.json"), "utf-8");
     expect(content).toContain("\n");
   });
 
   it("returns errorCode 1 for validation errors", () => {
-    const result = handleConfigSet(tmpDir, "log_level", "verbose");
+    const result = handleConfigSet(tmpDir, tmpDir, "log_level", "verbose");
     expect(result.ok).toBe(false);
     expect(result.errorCode).toBe(1);
   });
 
   it("returns errorCode 1 for unknown key", () => {
-    const result = handleConfigSet(tmpDir, "nonexistent", "foo");
+    const result = handleConfigSet(tmpDir, tmpDir, "nonexistent", "foo");
     expect(result.ok).toBe(false);
     expect(result.errorCode).toBe(1);
   });
@@ -154,7 +154,7 @@ describe("handleConfigSet", () => {
     const readOnlyDir = path.join(tmpDir, "readonly");
     fs.mkdirSync(readOnlyDir);
     fs.chmodSync(readOnlyDir, 0o444);
-    const result = handleConfigSet(readOnlyDir, "log_level", "debug");
+    const result = handleConfigSet(readOnlyDir, readOnlyDir, "log_level", "debug");
     expect(result.ok).toBe(false);
     expect(result.errorCode).toBe(2);
   });

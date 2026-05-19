@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { loadState, loadStats } from "../lib/state.js";
+import { loadState, loadStats, pruneJobs } from "../lib/state.js";
 import type { State, Job, Stats, RecentDecision } from "../types.js";
 
 interface LatestReview {
@@ -19,6 +19,7 @@ interface StatusResult {
 }
 
 export function handleStatus(statePath: string, statsPath: string): StatusResult {
+  pruneJobs(statePath);
   const state: State = loadState(statePath);
   let stats: Stats | null = null;
   let latestReview: LatestReview | null = null;

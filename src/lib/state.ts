@@ -45,6 +45,8 @@ export function incrementCount(
     state.sessions[sessionId].count = newCount;
   }
   saveState(statePath, state);
+  // Sync to per-session state
+  syncToSessionState(statePath, sessionId, state.sessions[sessionId]);
   return state.sessions[sessionId].count;
 }
 
@@ -72,6 +74,8 @@ export function consumePending(
   if (state.sessions[sessionId].pending_review) {
     state.sessions[sessionId].pending_review = false;
     saveState(statePath, state);
+    // Sync to per-session state
+    syncToSessionState(statePath, sessionId, state.sessions[sessionId]);
     return true;
   }
   return false;
@@ -80,7 +84,23 @@ export function consumePending(
 export function addJob(statePath: string, job: Job): void {
   const state = loadState(statePath);
   state.jobs.push(job);
+  // Prune completed/failed jobs to prevent unbounded growth
+  const running = state.jobs.filter((j) => j.status === "running");
+  const finished = state.jobs.filter((j) => j.status !== "running");
+  if (finished.length > MAX_COMPLETED_JOBS) {
+    state.jobs = [...running, ...finished.slice(-MAX_COMPLETED_JOBS)];
+  }
   saveState(statePath, state);
+}
+
+export function pruneJobs(statePath: string): void {
+  const state = loadState(statePath);
+  const running = state.jobs.filter((j) => j.status === "running");
+  const finished = state.jobs.filter((j) => j.status !== "running");
+  if (finished.length > MAX_COMPLETED_JOBS) {
+    state.jobs = [...running, ...finished.slice(-MAX_COMPLETED_JOBS)];
+    saveState(statePath, state);
+  }
 }
 
 export function updateJob(
@@ -93,6 +113,21 @@ export function updateJob(
   if (idx !== -1) {
     Object.assign(state.jobs[idx], updates);
     saveState(statePath, state);
+  }
+}
+
+// ─── Root ↔ Per-Session Sync ─────────────────────────────────────────
+
+function syncToSessionState(statePath: string, sessionId: string, sessionState: SessionState): void {
+  const pluginData = path.dirname(statePath);
+  const sessionsDir = path.join(pluginData, "sessions");
+  try {
+    const existing = loadSessionState(sessionsDir, sessionId);
+    existing.count = sessionState.count;
+    existing.pending_review = sessionState.pending_review;
+    saveSessionState(sessionsDir, sessionId, existing);
+  } catch {
+    // Best-effort: per-session state is a mirror, not critical
   }
 }
 
@@ -167,6 +202,7 @@ const EMPTY_STATS: Stats = {
 };
 
 const MAX_RECENT_DECISIONS = 50;
+const MAX_COMPLETED_JOBS = 100;
 
 export function loadStats(statsPath: string): Stats {
   try {
@@ -192,7 +228,7 @@ export function saveStats(statsPath: string, stats: Stats): void {
 
 export function updateStats(
   statsPath: string,
-  decision: "CREATED" | "UPDATED" | "SKIPPED",
+  decision: "CREATED" | "UPDATED" | "SKIPPED" | "DELETED",
   detail: string,
   sessionId: string,
   skillName?: string

@@ -38,26 +38,27 @@ function getConfigValue(resolved: Config, key: string): unknown {
   return (resolved as any)[key];
 }
 
-export function handleConfigSet(pluginRoot: string, key: string, rawValue: string, reset: boolean = false): ConfigSetResult {
+export function handleConfigSet(pluginRoot: string, pluginData: string, key: string, rawValue: string, reset: boolean = false): ConfigSetResult {
   if (!CONFIG_SCHEMA[key]) {
     return { ok: false, key, error: `unknown key '${key}'. Valid keys: ${Object.keys(CONFIG_SCHEMA).join(", ")}`, errorCode: 1 };
   }
 
-  const resolved = resolveConfig(pluginRoot);
+  const resolved = resolveConfig(pluginRoot, pluginData);
   const old_value = getConfigValue(resolved, key);
   const envVar = getEnvVarName(key);
   const hasEnvOverride = envVar && process.env[envVar];
 
   if (reset) {
-    const raw = loadRawConfig(pluginRoot);
+    const raw = loadRawConfig(pluginRoot, pluginData);
     delete raw[key];
-    const configPath = path.join(pluginRoot, "config.json");
+    const configPath = path.join(pluginData, "config.json");
     try {
+      fs.mkdirSync(pluginData, { recursive: true });
       fs.writeFileSync(configPath, JSON.stringify(raw, null, 2) + "\n");
     } catch (err) {
       return { ok: false, key, error: `failed to write config.json: ${err}`, errorCode: 2 };
     }
-    const defaults = loadConfig(pluginRoot);
+    const defaults = loadConfig(pluginRoot, pluginData);
     const new_value = getConfigValue(defaults, key);
     const source = hasEnvOverride ? "env_var" : "default";
     const result: ConfigSetResult = { ok: true, key, old_value, new_value, source };
@@ -70,10 +71,11 @@ export function handleConfigSet(pluginRoot: string, key: string, rawValue: strin
     return { ok: false, key, error: validation.error, errorCode: 1 };
   }
 
-  const raw = loadRawConfig(pluginRoot);
+  const raw = loadRawConfig(pluginRoot, pluginData);
   raw[key] = validation.value;
-  const configPath = path.join(pluginRoot, "config.json");
+  const configPath = path.join(pluginData, "config.json");
   try {
+    fs.mkdirSync(pluginData, { recursive: true });
     fs.writeFileSync(configPath, JSON.stringify(raw, null, 2) + "\n");
   } catch (err) {
     return { ok: false, key, error: `failed to write config.json: ${err}`, errorCode: 2 };

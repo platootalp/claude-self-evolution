@@ -29,18 +29,22 @@ const DEFAULT_CONFIG: Config = {
   binary_extensions: [".exe", ".dll", ".so", ".dylib", ".bin", ".bat", ".cmd", ".ps1", ".com"],
 };
 
-export function loadConfig(pluginRoot: string): Config {
-  for (const name of ["config.json", "config.default.json"]) {
-    try {
-      const raw = fs.readFileSync(path.join(pluginRoot, name), "utf-8");
-      return { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
-    } catch {}
+export function loadConfig(pluginRoot: string, pluginData?: string): Config {
+  // Try pluginData first (writable runtime location), then pluginRoot
+  for (const base of [pluginData, pluginRoot]) {
+    if (!base) continue;
+    for (const name of ["config.json", "config.default.json"]) {
+      try {
+        const raw = fs.readFileSync(path.join(base, name), "utf-8");
+        return { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
+      } catch {}
+    }
   }
   return { ...DEFAULT_CONFIG };
 }
 
-export function resolveConfig(pluginRoot: string): Config {
-  const config = loadConfig(pluginRoot);
+export function resolveConfig(pluginRoot: string, pluginData?: string): Config {
+  const config = loadConfig(pluginRoot, pluginData);
 
   if (process.env.SELF_EVOLUTION_NUDGE_INTERVAL) config.nudge_interval = parseInt(process.env.SELF_EVOLUTION_NUDGE_INTERVAL, 10);
   if (process.env.SELF_EVOLUTION_REVIEW_MODEL) config.review_model = process.env.SELF_EVOLUTION_REVIEW_MODEL;
@@ -142,17 +146,20 @@ export function getEnvVarName(key: string): string | undefined {
   return ENV_VAR_MAP[key];
 }
 
-export function loadRawConfig(pluginRoot: string): Record<string, unknown> {
-  try {
-    const raw = fs.readFileSync(path.join(pluginRoot, "config.json"), "utf-8");
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return {};
-    }
-    return parsed;
-  } catch {
-    return {};
+export function loadRawConfig(pluginRoot: string, pluginData?: string): Record<string, unknown> {
+  // Try pluginData first (writable runtime location), then pluginRoot
+  for (const base of [pluginData, pluginRoot]) {
+    if (!base) continue;
+    try {
+      const raw = fs.readFileSync(path.join(base, "config.json"), "utf-8");
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        continue;
+      }
+      return parsed;
+    } catch {}
   }
+  return {};
 }
 
 export interface ValidateResult {

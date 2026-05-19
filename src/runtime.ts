@@ -27,7 +27,7 @@ function resolvePaths(): { statePath: string; sessionsDir: string; statsPath: st
     }
     return path.join(os.homedir(), ".claude", "plugins", "data", "self-evolution-self-evolution-marketplace");
   })();
-  const config = resolveConfig(pluginRoot);
+  const config = resolveConfig(pluginRoot, pluginData);
 
   return {
     statePath: path.join(pluginData, "state.json"),
@@ -46,7 +46,17 @@ export function runCommand(command: string, args: string[], stdinData: string): 
   try {
     switch (command) {
       case "session-start": {
-        const sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`;
+        let sessionId: string;
+        if (stdinData) {
+          try {
+            const input = JSON.parse(stdinData);
+            sessionId = input.session_id ?? process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`;
+          } catch {
+            sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`;
+          }
+        } else {
+          sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`;
+        }
         const logger = createLogger(sessionsDir, sessionId, logLevel);
         handleSessionStart(sessionsDir, sessionId, logger);
         return 0;
@@ -55,7 +65,7 @@ export function runCommand(command: string, args: string[], stdinData: string): 
       case "post-tool-use": {
         if (!stdinData) return 0;
         const input = JSON.parse(stdinData);
-        const sessionId = input.session_id ?? process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown";
+        const sessionId = input.session_id ?? process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`;
         const logger = createLogger(sessionsDir, sessionId, logLevel);
         handlePostToolUse(statePath, sessionsDir, input, logger, config.nudge_interval);
         return 0;
@@ -64,7 +74,7 @@ export function runCommand(command: string, args: string[], stdinData: string): 
       case "stop-gate": {
         if (!stdinData) return 0;
         const input = JSON.parse(stdinData);
-        const sessionId = input.session_id ?? process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown";
+        const sessionId = input.session_id ?? process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`;
         const logger = createLogger(sessionsDir, sessionId, logLevel);
         handleStopGate(statePath, sessionsDir, sessionId, input, {
           pluginRoot,
@@ -86,7 +96,7 @@ export function runCommand(command: string, args: string[], stdinData: string): 
         scanArgs.maxFiles = scanArgs.maxFiles ?? config.max_files_per_skill;
         scanArgs.maxFileSize = scanArgs.maxFileSize ?? config.max_skill_file_size;
         scanArgs.maxTotalSize = scanArgs.maxTotalSize ?? config.max_skill_total_size;
-        const sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown";
+        const sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`;
         const logger = createLogger(sessionsDir, sessionId, logLevel);
         const result = handleSecurityScan(scanArgs, logger);
         process.stdout.write(JSON.stringify(result) + "\n");
@@ -95,7 +105,7 @@ export function runCommand(command: string, args: string[], stdinData: string): 
 
       case "review-context": {
         const transcriptPath = args[0] || process.env.SELF_EVOLUTION_TRANSCRIPT_PATH || "";
-        const sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown";
+        const sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`;
         const logger = createLogger(sessionsDir, sessionId, logLevel);
         if (!transcriptPath) {
           logger.info("review_context_missing_transcript_path", { has_arg: !!args[0], has_env: !!process.env.SELF_EVOLUTION_TRANSCRIPT_PATH });
@@ -109,7 +119,7 @@ export function runCommand(command: string, args: string[], stdinData: string): 
         const decision = args[0] || "unknown";
         const detail = args[1] || "";
         const durationMs = parseInt(args[2] || "0", 10);
-        const sessionId = args[3] || (process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown");
+        const sessionId = args[3] || (process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`);
         const logger = createLogger(sessionsDir, sessionId, logLevel);
         handleLogDecision(sessionsDir, statsPath, sessionId, decision, detail, durationMs, logger);
         return 0;
@@ -156,7 +166,7 @@ export function runCommand(command: string, args: string[], stdinData: string): 
 
       case "config-get": {
         const getArgs = parseConfigGetArgs(args);
-        const result = handleConfigGet(pluginRoot, getArgs.key || undefined);
+        const result = handleConfigGet(pluginRoot, pluginData, getArgs.key || undefined);
         process.stdout.write(JSON.stringify(result, null, 2) + "\n");
         return 0;
       }
@@ -171,7 +181,7 @@ export function runCommand(command: string, args: string[], stdinData: string): 
           process.stdout.write(JSON.stringify({ ok: false, key: setArgs.key, error: "missing --value (or use --reset)" }) + "\n");
           return 1;
         }
-        const result = handleConfigSet(pluginRoot, setArgs.key, setArgs.value, setArgs.reset);
+        const result = handleConfigSet(pluginRoot, pluginData, setArgs.key, setArgs.value, setArgs.reset);
         process.stdout.write(JSON.stringify(result, null, 2) + "\n");
         return result.ok ? 0 : (result.errorCode ?? 1);
       }

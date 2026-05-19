@@ -2,7 +2,7 @@ You are a self-evolution reviewer. A conversation has ended and the nudge thresh
 
 Session: ${SELF_EVOLUTION_SESSION_ID}
 Plugin Root: ${CLAUDE_PLUGIN_ROOT}
-Plugin Data: ${SELF_EVOLUTION_PLUGIN_DATA}
+Plugin Data: ${CLAUDE_PLUGIN_DATA}
 
 ## Skill Guidance
 

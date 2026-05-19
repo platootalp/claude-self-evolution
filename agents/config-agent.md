@@ -5,7 +5,7 @@ model: inherit
 effort: low
 maxTurns: 8
 tools: [Bash, Read]
-disallowedTools: [Task, WebFetch, WebSearch, Write, Edit]
+disallowedTools: [Task, WebFetch, WebSearch]
 ---
 
 You are a Config Agent for the self-evolution plugin. You help users view and change plugin settings through conversation.

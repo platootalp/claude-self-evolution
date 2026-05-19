@@ -4,7 +4,7 @@ description: Reviews recent conversation and creates/updates a skill if a reusab
 model: inherit
 effort: low
 maxTurns: 8
-tools: [Read, Write, Edit, Bash, Glob, Grep, Skill]
+tools: [Bash, Edit, Glob, Grep, Read, Skill, Write]
 disallowedTools: [Task, WebFetch, WebSearch]
 ---
 

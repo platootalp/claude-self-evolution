@@ -80,6 +80,7 @@ describe("spawner", () => {
       const fakeChild = {
         pid: 99999,
         unref: vi.fn(),
+        on: vi.fn(),
       } as unknown as ReturnType<typeof spawn>;
       return fakeChild as ReturnType<typeof spawn>;
     });
@@ -110,6 +111,7 @@ describe("spawner", () => {
       const fakeChild = {
         pid: 99998,
         unref: vi.fn(),
+        on: vi.fn(),
       } as unknown as ReturnType<typeof spawn>;
       return fakeChild as ReturnType<typeof spawn>;
     });
@@ -143,6 +145,7 @@ describe("spawner", () => {
       const fakeChild = {
         pid: 99996,
         unref: vi.fn(),
+        on: vi.fn(),
       } as unknown as ReturnType<typeof spawn>;
       return fakeChild as ReturnType<typeof spawn>;
     });
@@ -169,6 +172,7 @@ describe("spawner", () => {
       const fakeChild = {
         pid: 99997,
         unref: vi.fn(),
+        on: vi.fn(),
       } as unknown as ReturnType<typeof spawn>;
       return fakeChild as ReturnType<typeof spawn>;
     });

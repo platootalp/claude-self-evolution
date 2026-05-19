@@ -5,9 +5,15 @@ import os from "node:os";
 import crypto from "node:crypto";
 import type { SpawnOptions, Job } from "../types.js";
 
+export interface JobLifecycleCallbacks {
+  onJobCreated?(job: Job): void;
+  onJobExit?(jobId: string, code: number | null): void;
+  onJobError?(jobId: string, err: Error): void;
+}
+
 export interface AgentSpawner {
   readonly platform: string;
-  spawnReviewProcess(opts: SpawnOptions): Promise<Job>;
+  spawnReviewProcess(opts: SpawnOptions, callbacks?: JobLifecycleCallbacks): Promise<Job>;
 }
 
 export interface ExistingSkill {
@@ -142,7 +148,7 @@ NEVER output ok:false. Always complete and exit.`;
 export class ClaudeCodeSpawner implements AgentSpawner {
   readonly platform = "claude-code";
 
-  async spawnReviewProcess(opts: SpawnOptions): Promise<Job> {
+  async spawnReviewProcess(opts: SpawnOptions, callbacks?: JobLifecycleCallbacks): Promise<Job> {
     const existingSkills = readExistingSkills();
     const transcriptContent = readTranscriptContent(opts.transcriptPath);
     const variant = selectPromptVariant(existingSkills, transcriptContent);
@@ -160,9 +166,19 @@ export class ClaudeCodeSpawner implements AgentSpawner {
       args.push("--model", opts.reviewModel);
     }
 
+    // Open log file for companion stdout/stderr
+    const sessionDir = path.join(opts.pluginData, "sessions", opts.sessionId);
+    let logFd: number | undefined;
+    try {
+      fs.mkdirSync(sessionDir, { recursive: true });
+      logFd = fs.openSync(path.join(sessionDir, "companion.log"), "a");
+    } catch {
+      // Best-effort: fall back to "ignore" if log file can't be opened
+    }
+
     const child = spawn("claude", args, {
       detached: true,
-      stdio: "ignore",
+      stdio: ["ignore", logFd ?? "ignore", logFd ?? "ignore"],
       env: {
         ...process.env,
         CLAUDE_PLUGIN_ROOT: opts.pluginRoot,
@@ -173,28 +189,45 @@ export class ClaudeCodeSpawner implements AgentSpawner {
       },
     });
 
+    const jobId = generateId();
+
+    child.on("error", (err) => {
+      callbacks?.onJobError?.(jobId, err);
+    });
+
+    child.on("exit", (code) => {
+      // Close log fd if we opened one
+      if (logFd !== undefined) {
+        try { fs.closeSync(logFd); } catch {}
+      }
+      callbacks?.onJobExit?.(jobId, code);
+    });
+
     child.unref();
 
-    return {
-      id: generateId(),
+    const job: Job = {
+      id: jobId,
       session_id: opts.sessionId,
       pid: child.pid!,
       status: "running",
       started_at: new Date().toISOString(),
     };
+
+    callbacks?.onJobCreated?.(job);
+    return job;
   }
 }
 
 export class CodexSpawner implements AgentSpawner {
   readonly platform = "codex";
-  async spawnReviewProcess(_opts: SpawnOptions): Promise<Job> {
+  async spawnReviewProcess(_opts: SpawnOptions, _callbacks?: JobLifecycleCallbacks): Promise<Job> {
     throw new Error("Codex spawner not implemented. Set platform=claude-code or implement CodexSpawner.");
   }
 }
 
 export class CursorSpawner implements AgentSpawner {
   readonly platform = "cursor";
-  async spawnReviewProcess(_opts: SpawnOptions): Promise<Job> {
+  async spawnReviewProcess(_opts: SpawnOptions, _callbacks?: JobLifecycleCallbacks): Promise<Job> {
     throw new Error("Cursor spawner not implemented. Set platform=claude-code or implement CursorSpawner.");
   }
 }

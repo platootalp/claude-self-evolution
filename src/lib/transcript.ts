@@ -1,6 +1,9 @@
 import fs from "node:fs";
 import type { TranscriptSummary, TranscriptToolCall } from "../types.js";
 
+// totalTurns counts individual messages (both user and assistant), not conversation rounds.
+// A single round (user + assistant) = totalTurns of 2.
+
 export function parseTranscript(transcriptPath: string): TranscriptSummary {
   const summary: TranscriptSummary = {
     toolCalls: [],
@@ -34,14 +37,14 @@ export function parseTranscript(transcriptPath: string): TranscriptSummary {
       entries = [parsed];
     }
   } catch {
-    try {
-      entries = raw
-        .split("\n")
-        .filter((line) => line.trim())
-        .map((line) => JSON.parse(line));
-    } catch {
-      return summary;
-    }
+    // JSONL: parse line-by-line with per-line error tolerance
+    entries = raw
+      .split("\n")
+      .filter((line) => line.trim())
+      .flatMap((line) => {
+        try { return [JSON.parse(line)]; }
+        catch { return []; } // Skip corrupted lines
+      });
   }
 
   for (const entry of entries) {
@@ -93,6 +96,14 @@ export function parseTranscript(transcriptPath: string): TranscriptSummary {
         }
         if (added) summary.totalTurns++;
       }
+    } else if (type === "tool_result") {
+      // Tool results: capture as tool call output for reviewer context
+      const toolCall: TranscriptToolCall = {
+        tool: String(e.tool_use_id ?? e.name ?? "unknown"),
+        input: {},
+        output: typeof e.content === "string" ? e.content : JSON.stringify(e.content ?? ""),
+      };
+      summary.toolCalls.push(toolCall);
     } else if (!type && e.role) {
       summary.totalTurns++;
       if (e.role === "user" && typeof e.content === "string") {

@@ -213,4 +213,36 @@ describe("parseTranscript", () => {
     expect(summary.userMessages[0]).toBe("legacy message");
     expect(summary.assistantMessages[0]).toBe("modern reply");
   });
+
+  it("skips corrupted JSONL lines without losing other entries", () => {
+    const jsonlPath = path.join(tmpDir, "corrupted.jsonl");
+    const lines = [
+      JSON.stringify({ role: "user", content: "good line 1" }),
+      "{ this is broken json",
+      JSON.stringify({ role: "assistant", content: "good line 2" }),
+      "another bad line",
+    ];
+    fs.writeFileSync(jsonlPath, lines.join("\n"), "utf-8");
+    const summary = parseTranscript(jsonlPath);
+    expect(summary.userMessages).toHaveLength(1);
+    expect(summary.assistantMessages).toHaveLength(1);
+    expect(summary.userMessages[0]).toBe("good line 1");
+    expect(summary.assistantMessages[0]).toBe("good line 2");
+  });
+
+  it("extracts tool_result entries with output", () => {
+    const jsonlPath = path.join(tmpDir, "tool-result.jsonl");
+    const lines = [
+      JSON.stringify({
+        type: "tool_result",
+        tool_use_id: "call_1",
+        content: "file contents here",
+      }),
+    ];
+    fs.writeFileSync(jsonlPath, lines.join("\n"), "utf-8");
+    const summary = parseTranscript(jsonlPath);
+    expect(summary.toolCalls).toHaveLength(1);
+    expect(summary.toolCalls[0].tool).toBe("call_1");
+    expect(summary.toolCalls[0].output).toBe("file contents here");
+  });
 });

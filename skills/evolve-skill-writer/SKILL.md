@@ -10,6 +10,7 @@ when_to_use: |
   - "Capture this debugging pattern"
 paths: ["**/*"]
 allowed-tools: Read Write Edit
+trust: trusted
 version: "1.0.0"
 ---
 

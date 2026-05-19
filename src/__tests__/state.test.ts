@@ -137,7 +137,10 @@ describe("state", () => {
     expect(state.jobs[0].decision).toBe("CREATED");
   });
 
-  it("handles concurrent writes gracefully (no corruption)", async () => {
+  it("incrementCount is not concurrency-safe (sequential calls recommended)", async () => {
+    // incrementCount does read-modify-write without locking, so concurrent calls
+    // may lose updates. This test verifies the state remains valid (no corruption),
+    // not that all 20 increments are counted.
     const promises = Array.from({ length: 20 }, (_, i) =>
       Promise.resolve().then(() => incrementCount(statePath, "s-concurrent"))
     );
@@ -150,6 +153,10 @@ describe("state", () => {
     expect(typeof state.sessions["s-concurrent"].count).toBe("number");
     expect(Number.isFinite(state.sessions["s-concurrent"].count)).toBe(true);
     expect(state.sessions["s-concurrent"].count).toBeGreaterThanOrEqual(0);
+    // Sequential: should be exactly 20
+    for (let i = 0; i < 20; i++) incrementCount(statePath, "s-seq", 100);
+    const state2 = loadState(statePath);
+    expect(state2.sessions["s-seq"].count).toBe(20);
   });
 });
 

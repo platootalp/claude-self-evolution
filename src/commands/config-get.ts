@@ -26,9 +26,9 @@ function getConfigValue(resolved: Config, key: string): unknown {
   return (resolved as any)[key];
 }
 
-export function handleConfigGet(pluginRoot: string, filterKey?: string): ConfigGetEntry[] {
-  const resolved = resolveConfig(pluginRoot);
-  const raw = loadRawConfig(pluginRoot);
+export function handleConfigGet(pluginRoot: string, pluginData: string, filterKey?: string): ConfigGetEntry[] {
+  const resolved = resolveConfig(pluginRoot, pluginData);
+  const raw = loadRawConfig(pluginRoot, pluginData);
 
   const validKeys = filterKey ? (CONFIG_SCHEMA[filterKey] ? [filterKey] : []) : Object.keys(CONFIG_SCHEMA);
 

@@ -22,18 +22,21 @@ var DEFAULT_CONFIG = {
   max_files_per_skill: 50,
   binary_extensions: [".exe", ".dll", ".so", ".dylib", ".bin", ".bat", ".cmd", ".ps1", ".com"]
 };
-function loadConfig(pluginRoot) {
-  for (const name of ["config.json", "config.default.json"]) {
-    try {
-      const raw = fs.readFileSync(path.join(pluginRoot, name), "utf-8");
-      return { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
-    } catch {
+function loadConfig(pluginRoot, pluginData) {
+  for (const base of [pluginData, pluginRoot]) {
+    if (!base) continue;
+    for (const name of ["config.json", "config.default.json"]) {
+      try {
+        const raw = fs.readFileSync(path.join(base, name), "utf-8");
+        return { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
+      } catch {
+      }
     }
   }
   return { ...DEFAULT_CONFIG };
 }
-function resolveConfig(pluginRoot) {
-  const config = loadConfig(pluginRoot);
+function resolveConfig(pluginRoot, pluginData) {
+  const config = loadConfig(pluginRoot, pluginData);
   if (process.env.SELF_EVOLUTION_NUDGE_INTERVAL) config.nudge_interval = parseInt(process.env.SELF_EVOLUTION_NUDGE_INTERVAL, 10);
   if (process.env.SELF_EVOLUTION_REVIEW_MODEL) config.review_model = process.env.SELF_EVOLUTION_REVIEW_MODEL;
   if (process.env.SELF_EVOLUTION_PLATFORM) config.platform = process.env.SELF_EVOLUTION_PLATFORM;
@@ -118,17 +121,20 @@ var ENV_VAR_MAP = {
 function getEnvVarName(key) {
   return ENV_VAR_MAP[key];
 }
-function loadRawConfig(pluginRoot) {
-  try {
-    const raw = fs.readFileSync(path.join(pluginRoot, "config.json"), "utf-8");
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return {};
+function loadRawConfig(pluginRoot, pluginData) {
+  for (const base of [pluginData, pluginRoot]) {
+    if (!base) continue;
+    try {
+      const raw = fs.readFileSync(path.join(base, "config.json"), "utf-8");
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        continue;
+      }
+      return parsed;
+    } catch {
     }
-    return parsed;
-  } catch {
-    return {};
   }
+  return {};
 }
 function validateConfigValue(key, rawValue) {
   const schema = CONFIG_SCHEMA[key];
@@ -263,6 +269,7 @@ function incrementCount(statePath, sessionId, threshold = 10) {
     state.sessions[sessionId].count = newCount;
   }
   saveState(statePath, state);
+  syncToSessionState(statePath, sessionId, state.sessions[sessionId]);
   return state.sessions[sessionId].count;
 }
 function resetCount(statePath, sessionId) {
@@ -282,6 +289,7 @@ function consumePending(statePath, sessionId) {
   if (state.sessions[sessionId].pending_review) {
     state.sessions[sessionId].pending_review = false;
     saveState(statePath, state);
+    syncToSessionState(statePath, sessionId, state.sessions[sessionId]);
     return true;
   }
   return false;
@@ -289,7 +297,40 @@ function consumePending(statePath, sessionId) {
 function addJob(statePath, job) {
   const state = loadState(statePath);
   state.jobs.push(job);
+  const running = state.jobs.filter((j) => j.status === "running");
+  const finished = state.jobs.filter((j) => j.status !== "running");
+  if (finished.length > MAX_COMPLETED_JOBS) {
+    state.jobs = [...running, ...finished.slice(-MAX_COMPLETED_JOBS)];
+  }
   saveState(statePath, state);
+}
+function pruneJobs(statePath) {
+  const state = loadState(statePath);
+  const running = state.jobs.filter((j) => j.status === "running");
+  const finished = state.jobs.filter((j) => j.status !== "running");
+  if (finished.length > MAX_COMPLETED_JOBS) {
+    state.jobs = [...running, ...finished.slice(-MAX_COMPLETED_JOBS)];
+    saveState(statePath, state);
+  }
+}
+function updateJob(statePath, jobId, updates) {
+  const state = loadState(statePath);
+  const idx = state.jobs.findIndex((j) => j.id === jobId);
+  if (idx !== -1) {
+    Object.assign(state.jobs[idx], updates);
+    saveState(statePath, state);
+  }
+}
+function syncToSessionState(statePath, sessionId, sessionState) {
+  const pluginData = path3.dirname(statePath);
+  const sessionsDir = path3.join(pluginData, "sessions");
+  try {
+    const existing = loadSessionState(sessionsDir, sessionId);
+    existing.count = sessionState.count;
+    existing.pending_review = sessionState.pending_review;
+    saveSessionState(sessionsDir, sessionId, existing);
+  } catch {
+  }
 }
 function initSessionState(sessionsDir, sessionId, partial = {}) {
   const dir = path3.join(sessionsDir, sessionId);
@@ -338,6 +379,7 @@ var EMPTY_STATS = {
   recent_decisions: []
 };
 var MAX_RECENT_DECISIONS = 50;
+var MAX_COMPLETED_JOBS = 100;
 function loadStats(statsPath) {
   try {
     const raw = fs3.readFileSync(statsPath, "utf-8");
@@ -520,7 +562,7 @@ NEVER output ok:false. Always complete and exit.`;
 }
 var ClaudeCodeSpawner = class {
   platform = "claude-code";
-  async spawnReviewProcess(opts) {
+  async spawnReviewProcess(opts, callbacks) {
     const existingSkills = readExistingSkills();
     const transcriptContent = readTranscriptContent(opts.transcriptPath);
     const variant = selectPromptVariant(existingSkills, transcriptContent);
@@ -538,9 +580,16 @@ var ClaudeCodeSpawner = class {
     if (opts.reviewModel) {
       args.push("--model", opts.reviewModel);
     }
+    const sessionDir = path4.join(opts.pluginData, "sessions", opts.sessionId);
+    let logFd;
+    try {
+      fs4.mkdirSync(sessionDir, { recursive: true });
+      logFd = fs4.openSync(path4.join(sessionDir, "companion.log"), "a");
+    } catch {
+    }
     const child = spawn("claude", args, {
       detached: true,
-      stdio: "ignore",
+      stdio: ["ignore", logFd ?? "ignore", logFd ?? "ignore"],
       env: {
         ...process.env,
         CLAUDE_PLUGIN_ROOT: opts.pluginRoot,
@@ -550,25 +599,40 @@ var ClaudeCodeSpawner = class {
         SELF_EVOLUTION_REVIEW_MODE: "1"
       }
     });
+    const jobId = generateId();
+    child.on("error", (err) => {
+      callbacks?.onJobError?.(jobId, err);
+    });
+    child.on("exit", (code) => {
+      if (logFd !== void 0) {
+        try {
+          fs4.closeSync(logFd);
+        } catch {
+        }
+      }
+      callbacks?.onJobExit?.(jobId, code);
+    });
     child.unref();
-    return {
-      id: generateId(),
+    const job = {
+      id: jobId,
       session_id: opts.sessionId,
       pid: child.pid,
       status: "running",
       started_at: (/* @__PURE__ */ new Date()).toISOString()
     };
+    callbacks?.onJobCreated?.(job);
+    return job;
   }
 };
 var CodexSpawner = class {
   platform = "codex";
-  async spawnReviewProcess(_opts) {
+  async spawnReviewProcess(_opts, _callbacks) {
     throw new Error("Codex spawner not implemented. Set platform=claude-code or implement CodexSpawner.");
   }
 };
 var CursorSpawner = class {
   platform = "cursor";
-  async spawnReviewProcess(_opts) {
+  async spawnReviewProcess(_opts, _callbacks) {
     throw new Error("Cursor spawner not implemented. Set platform=claude-code or implement CursorSpawner.");
   }
 };
@@ -610,6 +674,27 @@ function handleStopGate(statePath, sessionsDir, sessionId, input, options, logge
   try {
     const spawner = getSpawner(options.platform);
     const startTime = Date.now();
+    const callbacks = {
+      onJobCreated(job) {
+        addJob(statePath, job);
+      },
+      onJobExit(jobId, code) {
+        const status = code === 0 ? "completed" : "failed";
+        updateJob(statePath, jobId, {
+          status,
+          completed_at: (/* @__PURE__ */ new Date()).toISOString()
+        });
+        const duration = Date.now() - startTime;
+        logger.info("companion_exit", { job_id: jobId, exit_code: code, status, duration_ms: duration });
+      },
+      onJobError(jobId, err) {
+        updateJob(statePath, jobId, {
+          status: "failed",
+          completed_at: (/* @__PURE__ */ new Date()).toISOString()
+        });
+        logger.info("companion_error", { job_id: jobId, error: err.message });
+      }
+    };
     const jobPromise = spawner.spawnReviewProcess({
       sessionId: input.session_id,
       transcriptPath: input.transcript_path,
@@ -617,14 +702,10 @@ function handleStopGate(statePath, sessionsDir, sessionId, input, options, logge
       pluginData: options.pluginData,
       reviewModel: options.reviewModel,
       reviewMaxTurns: options.reviewMaxTurns
-    });
+    }, callbacks);
     jobPromise.then((job) => {
       logger.info("review_launched", { session_id: input.session_id, pid: job.pid });
       logger.debug("spawn_launched", { command: "claude -p", pid: job.pid });
-      addJob(statePath, job);
-    }).then(() => {
-      const duration = Date.now() - startTime;
-      logger.debug("spawn_completed", { exit_code: 0, duration_ms: duration });
     }).catch((err) => {
       const duration = Date.now() - startTime;
       const msg = err instanceof Error ? err.message : String(err);
@@ -1131,11 +1212,13 @@ function parseTranscript(transcriptPath) {
       entries = [parsed];
     }
   } catch {
-    try {
-      entries = raw.split("\n").filter((line) => line.trim()).map((line) => JSON.parse(line));
-    } catch {
-      return summary;
-    }
+    entries = raw.split("\n").filter((line) => line.trim()).flatMap((line) => {
+      try {
+        return [JSON.parse(line)];
+      } catch {
+        return [];
+      }
+    });
   }
   for (const entry of entries) {
     const e = entry;
@@ -1185,6 +1268,13 @@ function parseTranscript(transcriptPath) {
         }
         if (added) summary.totalTurns++;
       }
+    } else if (type === "tool_result") {
+      const toolCall = {
+        tool: String(e.tool_use_id ?? e.name ?? "unknown"),
+        input: {},
+        output: typeof e.content === "string" ? e.content : JSON.stringify(e.content ?? "")
+      };
+      summary.toolCalls.push(toolCall);
     } else if (!type && e.role) {
       summary.totalTurns++;
       if (e.role === "user" && typeof e.content === "string") {
@@ -1235,33 +1325,34 @@ function handleReviewContext(options, logger) {
 import fs9 from "node:fs";
 import path8 from "node:path";
 import os5 from "node:os";
+var VALID_DECISIONS = ["CREATED", "UPDATED", "SKIPPED", "DELETED"];
+function isValidDecision(d) {
+  return VALID_DECISIONS.includes(d);
+}
 function handleLogDecision(sessionsDir, statsPath, sessionId, decision, detail, durationMs, logger) {
   logger.logDecision(decision, detail, durationMs);
+  if (!isValidDecision(decision)) return;
   const skillName = decision !== "SKIPPED" ? extractSkillName(detail) : void 0;
-  if (decision === "CREATED" || decision === "UPDATED" || decision === "SKIPPED" || decision === "DELETED") {
-    logger.info("review_summary", {
-      action: decision,
-      ...skillName ? { name: skillName } : {},
-      rationale: detail
-    });
-  }
-  if (decision === "CREATED" || decision === "UPDATED" || decision === "SKIPPED" || decision === "DELETED") {
-    updateStats(statsPath, decision, detail, sessionId, skillName);
-    updateSessionResult(sessionsDir, sessionId, {
-      review_decision: decision,
-      review_detail: detail,
-      ...skillName ? { skill_name: skillName } : {}
-    });
-    if (skillName) {
-      const skillPath = path8.join(os5.homedir(), ".claude", "skills", skillName, "SKILL.md");
-      try {
-        const stat = fs9.statSync(skillPath);
-        logger.info("skill_written", { path: skillPath, size_bytes: stat.size });
-        const content = fs9.readFileSync(skillPath, "utf-8");
-        logger.debug("skill_content_preview", { preview: content.slice(0, 200) });
-      } catch {
-        logger.info("skill_written", { skill_name: skillName });
-      }
+  logger.info("review_summary", {
+    action: decision,
+    ...skillName ? { name: skillName } : {},
+    rationale: detail
+  });
+  updateStats(statsPath, decision, detail, sessionId, skillName);
+  updateSessionResult(sessionsDir, sessionId, {
+    review_decision: decision,
+    review_detail: detail,
+    ...skillName ? { skill_name: skillName } : {}
+  });
+  if (skillName) {
+    const skillPath = path8.join(os5.homedir(), ".claude", "skills", skillName, "SKILL.md");
+    try {
+      const stat = fs9.statSync(skillPath);
+      logger.info("skill_written", { path: skillPath, size_bytes: stat.size });
+      const content = fs9.readFileSync(skillPath, "utf-8");
+      logger.debug("skill_content_preview", { preview: content.slice(0, 200) });
+    } catch {
+      logger.info("skill_written", { skill_name: skillName });
     }
   }
 }
@@ -1273,6 +1364,7 @@ function extractSkillName(detail) {
 // src/commands/status.ts
 import fs10 from "node:fs";
 function handleStatus(statePath, statsPath) {
+  pruneJobs(statePath);
   const state = loadState(statePath);
   let stats = null;
   let latestReview = null;
@@ -1380,9 +1472,9 @@ function parseConfigGetArgs(argv) {
 function getConfigValue(resolved, key) {
   return resolved[key];
 }
-function handleConfigGet(pluginRoot, filterKey) {
-  const resolved = resolveConfig(pluginRoot);
-  const raw = loadRawConfig(pluginRoot);
+function handleConfigGet(pluginRoot, pluginData, filterKey) {
+  const resolved = resolveConfig(pluginRoot, pluginData);
+  const raw = loadRawConfig(pluginRoot, pluginData);
   const validKeys = filterKey ? CONFIG_SCHEMA[filterKey] ? [filterKey] : [] : Object.keys(CONFIG_SCHEMA);
   return validKeys.map((key) => {
     const envVar = getEnvVarName(key);
@@ -1417,24 +1509,25 @@ function parseConfigSetArgs(argv) {
 function getConfigValue2(resolved, key) {
   return resolved[key];
 }
-function handleConfigSet(pluginRoot, key, rawValue, reset = false) {
+function handleConfigSet(pluginRoot, pluginData, key, rawValue, reset = false) {
   if (!CONFIG_SCHEMA[key]) {
     return { ok: false, key, error: `unknown key '${key}'. Valid keys: ${Object.keys(CONFIG_SCHEMA).join(", ")}`, errorCode: 1 };
   }
-  const resolved = resolveConfig(pluginRoot);
+  const resolved = resolveConfig(pluginRoot, pluginData);
   const old_value = getConfigValue2(resolved, key);
   const envVar = getEnvVarName(key);
   const hasEnvOverride = envVar && process.env[envVar];
   if (reset) {
-    const raw2 = loadRawConfig(pluginRoot);
+    const raw2 = loadRawConfig(pluginRoot, pluginData);
     delete raw2[key];
-    const configPath2 = path10.join(pluginRoot, "config.json");
+    const configPath2 = path10.join(pluginData, "config.json");
     try {
+      fs12.mkdirSync(pluginData, { recursive: true });
       fs12.writeFileSync(configPath2, JSON.stringify(raw2, null, 2) + "\n");
     } catch (err) {
       return { ok: false, key, error: `failed to write config.json: ${err}`, errorCode: 2 };
     }
-    const defaults = loadConfig(pluginRoot);
+    const defaults = loadConfig(pluginRoot, pluginData);
     const new_value = getConfigValue2(defaults, key);
     const source2 = hasEnvOverride ? "env_var" : "default";
     const result2 = { ok: true, key, old_value, new_value, source: source2 };
@@ -1445,10 +1538,11 @@ function handleConfigSet(pluginRoot, key, rawValue, reset = false) {
   if (!validation.ok) {
     return { ok: false, key, error: validation.error, errorCode: 1 };
   }
-  const raw = loadRawConfig(pluginRoot);
+  const raw = loadRawConfig(pluginRoot, pluginData);
   raw[key] = validation.value;
-  const configPath = path10.join(pluginRoot, "config.json");
+  const configPath = path10.join(pluginData, "config.json");
   try {
+    fs12.mkdirSync(pluginData, { recursive: true });
     fs12.writeFileSync(configPath, JSON.stringify(raw, null, 2) + "\n");
   } catch (err) {
     return { ok: false, key, error: `failed to write config.json: ${err}`, errorCode: 2 };
@@ -1470,7 +1564,7 @@ function resolvePaths() {
     }
     return path11.join(os7.homedir(), ".claude", "plugins", "data", "self-evolution-self-evolution-marketplace");
   })();
-  const config = resolveConfig(pluginRoot);
+  const config = resolveConfig(pluginRoot, pluginData);
   return {
     statePath: path11.join(pluginData, "state.json"),
     sessionsDir: path11.join(pluginData, "sessions"),
@@ -1486,7 +1580,17 @@ function runCommand(command, args, stdinData) {
   try {
     switch (command) {
       case "session-start": {
-        const sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`;
+        let sessionId;
+        if (stdinData) {
+          try {
+            const input = JSON.parse(stdinData);
+            sessionId = input.session_id ?? process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`;
+          } catch {
+            sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`;
+          }
+        } else {
+          sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`;
+        }
         const logger = createLogger(sessionsDir, sessionId, logLevel);
         handleSessionStart(sessionsDir, sessionId, logger);
         return 0;
@@ -1494,7 +1598,7 @@ function runCommand(command, args, stdinData) {
       case "post-tool-use": {
         if (!stdinData) return 0;
         const input = JSON.parse(stdinData);
-        const sessionId = input.session_id ?? process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown";
+        const sessionId = input.session_id ?? process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`;
         const logger = createLogger(sessionsDir, sessionId, logLevel);
         handlePostToolUse(statePath, sessionsDir, input, logger, config.nudge_interval);
         return 0;
@@ -1502,7 +1606,7 @@ function runCommand(command, args, stdinData) {
       case "stop-gate": {
         if (!stdinData) return 0;
         const input = JSON.parse(stdinData);
-        const sessionId = input.session_id ?? process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown";
+        const sessionId = input.session_id ?? process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`;
         const logger = createLogger(sessionsDir, sessionId, logLevel);
         handleStopGate(statePath, sessionsDir, sessionId, input, {
           pluginRoot,
@@ -1523,7 +1627,7 @@ function runCommand(command, args, stdinData) {
         scanArgs.maxFiles = scanArgs.maxFiles ?? config.max_files_per_skill;
         scanArgs.maxFileSize = scanArgs.maxFileSize ?? config.max_skill_file_size;
         scanArgs.maxTotalSize = scanArgs.maxTotalSize ?? config.max_skill_total_size;
-        const sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown";
+        const sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`;
         const logger = createLogger(sessionsDir, sessionId, logLevel);
         const result = handleSecurityScan(scanArgs, logger);
         process.stdout.write(JSON.stringify(result) + "\n");
@@ -1531,7 +1635,7 @@ function runCommand(command, args, stdinData) {
       }
       case "review-context": {
         const transcriptPath = args[0] || process.env.SELF_EVOLUTION_TRANSCRIPT_PATH || "";
-        const sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown";
+        const sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`;
         const logger = createLogger(sessionsDir, sessionId, logLevel);
         if (!transcriptPath) {
           logger.info("review_context_missing_transcript_path", { has_arg: !!args[0], has_env: !!process.env.SELF_EVOLUTION_TRANSCRIPT_PATH });
@@ -1544,7 +1648,7 @@ function runCommand(command, args, stdinData) {
         const decision = args[0] || "unknown";
         const detail = args[1] || "";
         const durationMs = parseInt(args[2] || "0", 10);
-        const sessionId = args[3] || (process.env.SELF_EVOLUTION_SESSION_ID ?? "unknown");
+        const sessionId = args[3] || (process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`);
         const logger = createLogger(sessionsDir, sessionId, logLevel);
         handleLogDecision(sessionsDir, statsPath, sessionId, decision, detail, durationMs, logger);
         return 0;
@@ -1586,7 +1690,7 @@ function runCommand(command, args, stdinData) {
       }
       case "config-get": {
         const getArgs = parseConfigGetArgs(args);
-        const result = handleConfigGet(pluginRoot, getArgs.key || void 0);
+        const result = handleConfigGet(pluginRoot, pluginData, getArgs.key || void 0);
         process.stdout.write(JSON.stringify(result, null, 2) + "\n");
         return 0;
       }
@@ -1600,7 +1704,7 @@ function runCommand(command, args, stdinData) {
           process.stdout.write(JSON.stringify({ ok: false, key: setArgs.key, error: "missing --value (or use --reset)" }) + "\n");
           return 1;
         }
-        const result = handleConfigSet(pluginRoot, setArgs.key, setArgs.value, setArgs.reset);
+        const result = handleConfigSet(pluginRoot, pluginData, setArgs.key, setArgs.value, setArgs.reset);
         process.stdout.write(JSON.stringify(result, null, 2) + "\n");
         return result.ok ? 0 : result.errorCode ?? 1;
       }
