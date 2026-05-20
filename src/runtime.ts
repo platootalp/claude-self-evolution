@@ -16,17 +16,12 @@ import { handleVerifySkill, parseVerifySkillArgs } from "./commands/verify-skill
 import { handleDeleteSkill, parseDeleteSkillArgs } from "./commands/delete-skill.js";
 import { handleConfigGet, parseConfigGetArgs } from "./commands/config-get.js";
 import { handleConfigSet, parseConfigSetArgs } from "./commands/config-set.js";
+import { getAdapter, normalizeHookInput } from "./lib/adapter.js";
 
 function resolvePaths(): { statePath: string; sessionsDir: string; statsPath: string; pluginRoot: string; pluginData: string; config: Config } {
-  const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT ?? "";
-  const pluginData = process.env.CLAUDE_PLUGIN_DATA ?? (() => {
-    if (pluginRoot) {
-      const name = path.basename(pluginRoot);
-      const marketplace = path.basename(path.dirname(pluginRoot));
-      return path.join(os.homedir(), ".claude", "plugins", "data", `${name}-${marketplace}`);
-    }
-    return path.join(os.homedir(), ".claude", "plugins", "data", "self-evolution-self-evolution-marketplace");
-  })();
+  const adapter = getAdapter();
+  const pluginRoot = adapter.resolvePluginRoot();
+  const pluginData = adapter.resolvePluginData(pluginRoot);
   const config = resolveConfig(pluginRoot, pluginData);
 
   return {
@@ -49,8 +44,9 @@ export function runCommand(command: string, args: string[], stdinData: string): 
         let sessionId: string;
         if (stdinData) {
           try {
-            const input = JSON.parse(stdinData);
-            sessionId = input.session_id ?? process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`;
+            const raw = JSON.parse(stdinData);
+            const input = normalizeHookInput(raw, getAdapter().platform);
+            sessionId = input.sessionId || process.env.SELF_EVOLUTION_SESSION_ID || `session-${Date.now()}`;
           } catch {
             sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`;
           }
@@ -64,19 +60,25 @@ export function runCommand(command: string, args: string[], stdinData: string): 
 
       case "post-tool-use": {
         if (!stdinData) return 0;
-        const input = JSON.parse(stdinData);
-        const sessionId = input.session_id ?? process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`;
+        const raw = JSON.parse(stdinData);
+        const input = normalizeHookInput(raw, getAdapter().platform);
+        const sessionId = input.sessionId || process.env.SELF_EVOLUTION_SESSION_ID || `session-${Date.now()}`;
         const logger = createLogger(sessionsDir, sessionId, logLevel);
-        handlePostToolUse(statePath, sessionsDir, input, logger, config.nudge_interval);
+        handlePostToolUse(statePath, sessionsDir, raw, logger, config.nudge_interval);
         return 0;
       }
 
       case "stop-gate": {
         if (!stdinData) return 0;
-        const input = JSON.parse(stdinData);
-        const sessionId = input.session_id ?? process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`;
+        const raw = JSON.parse(stdinData);
+        const input = normalizeHookInput(raw, getAdapter().platform);
+        const sessionId = input.sessionId || process.env.SELF_EVOLUTION_SESSION_ID || `session-${Date.now()}`;
         const logger = createLogger(sessionsDir, sessionId, logLevel);
-        handleStopGate(statePath, sessionsDir, sessionId, input, {
+        handleStopGate(statePath, sessionsDir, sessionId, {
+          session_id: sessionId,
+          transcript_path: input.transcriptPath ?? "",
+          stop_hook_active: (raw as Record<string, unknown>).stop_hook_active ?? (raw as Record<string, unknown>).stopHookActive ?? false,
+        }, {
           pluginRoot,
           pluginData,
           reviewModel: config.review_model,
