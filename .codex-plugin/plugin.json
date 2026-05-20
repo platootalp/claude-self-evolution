@@ -1,0 +1,13 @@
+{
+  "name": "self-evolution",
+  "version": "0.12.0",
+  "description": "Auto-curate skills from your conversations via companion-mode background review, hard-gated security and meta-skill driven content generation.",
+  "author": { "name": "platootalp" },
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.codex.json",
+  "interface": {
+    "displayName": "Self-Evolution",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"]
+  }
+}
