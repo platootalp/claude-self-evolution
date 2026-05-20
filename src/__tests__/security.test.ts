@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { scanWrite, scanDirectory, applyTrustPolicy } from "../lib/security.js";
+import { scanWrite, scanDirectory, applyTrustPolicy, _setSkillsDirs, _resetSkillsDirCache } from "../lib/security.js";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -16,13 +16,12 @@ describe("security scanWrite", () => {
     expect(result.allowed).toBe(true);
   });
 
-  it("blocks write to ~/.claude/ outside skills/", () => {
+  it("allows write to ~/.claude/ outside skills/ (falls through to content scan)", () => {
     const result = scanWrite(
       path.join(os.homedir(), ".claude", "CLAUDE.md"),
       "anything"
     );
-    expect(result.allowed).toBe(false);
-    expect(result.reason).toContain("path_escape");
+    expect(result.allowed).toBe(true);
   });
 
   it("allows write to paths outside ~/.claude/ (project code)", () => {
@@ -738,6 +737,50 @@ describe("security scanDirectory", () => {
     fs.writeFileSync(path.join(skillDir, "myskill", "target.md"), "safe");
     fs.symlinkSync(path.join(skillDir, "myskill", "target.md"), path.join(skillDir, "myskill", "link.md"));
     const result = scanDirectory(path.join(skillDir, "myskill"));
+    expect(result.allowed).toBe(true);
+  });
+});
+
+describe("scanWrite multi-platform skill dirs", () => {
+  afterEach(() => {
+    _resetSkillsDirCache();
+  });
+
+  it("allows writes to ~/.agents/skills/<name>/SKILL.md when in skillDirs", () => {
+    _setSkillsDirs([
+      path.join(os.homedir(), ".agents", "skills"),
+      path.join(os.homedir(), ".claude", "skills"),
+    ]);
+    const targetPath = path.join(os.homedir(), ".agents", "skills", "my-skill", "SKILL.md");
+    const result = scanWrite(targetPath, "---\nname: test\ndescription: test\n---\ncontent");
+    expect(result.allowed).toBe(true);
+  });
+
+  it("allows writes to ~/.cursor/skills/<name>/SKILL.md when in skillDirs", () => {
+    _setSkillsDirs([
+      path.join(os.homedir(), ".cursor", "skills"),
+      path.join(os.homedir(), ".claude", "skills"),
+    ]);
+    const targetPath = path.join(os.homedir(), ".cursor", "skills", "my-skill", "SKILL.md");
+    const result = scanWrite(targetPath, "---\nname: test\ndescription: test\n---\ncontent");
+    expect(result.allowed).toBe(true);
+  });
+
+  it("allows writes to a path not in skillDirs (falls through to content scan)", () => {
+    const defaultDirs = [path.join(os.homedir(), ".claude", "skills")];
+    _setSkillsDirs(defaultDirs);
+    const fallthroughPath = path.join(os.homedir(), ".claude", "config.json");
+    const result = scanWrite(fallthroughPath, "content");
+    expect(result.allowed).toBe(true);
+  });
+
+  it("allows references dir in codex skills path", () => {
+    _setSkillsDirs([
+      path.join(os.homedir(), ".agents", "skills"),
+      path.join(os.homedir(), ".claude", "skills"),
+    ]);
+    const targetPath = path.join(os.homedir(), ".agents", "skills", "my-skill", "references", "guide.md");
+    const result = scanWrite(targetPath, "# Guide\nContent here");
     expect(result.allowed).toBe(true);
   });
 });

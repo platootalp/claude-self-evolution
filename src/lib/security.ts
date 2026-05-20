@@ -4,15 +4,18 @@ import fs from "node:fs";
 import type { ScanResult, SecurityPattern, SecurityMatch, TrustLevel } from "../types.js";
 
 // Lazy-loaded to support test mocking
-let _skillsDir: string | null = null;
+let _skillDirs: string[] | null = null;
 export function _resetSkillsDirCache(): void {
-  _skillsDir = null;
+  _skillDirs = null;
 }
-function getSkillsDir(): string {
-  if (!_skillsDir) {
-    _skillsDir = path.join(os.homedir(), ".claude", "skills");
+export function _setSkillsDirs(dirs: string[]): void {
+  _skillDirs = dirs;
+}
+function getSkillDirs(): string[] {
+  if (!_skillDirs) {
+    _skillDirs = [path.join(os.homedir(), ".claude", "skills")];
   }
-  return _skillsDir;
+  return _skillDirs;
 }
 
 const SECURITY_PATTERNS: SecurityPattern[] = [
@@ -160,15 +163,23 @@ export function scanWrite(
 ): ScanResult {
   const maxSkillSize = options.maxSkillSize ?? 262144;
 
-  // 1. Path whitelist: SKILL.md, references/**, templates/**
+  // 1. Path whitelist: check against all configured skill dirs
   const normalizedTarget = path.normalize(targetPath);
-  const normalizedSkillsDir = path.normalize(getSkillsDir());
-  const normalizedClaudeDir = path.normalize(path.join(os.homedir(), ".claude"));
+  const skillDirs = getSkillDirs();
 
-  if (normalizedTarget.startsWith(normalizedClaudeDir + path.sep) || normalizedTarget === normalizedClaudeDir) {
-    const rel = path.relative(normalizedSkillsDir, normalizedTarget);
+  let matchedSkillsDir: string | null = null;
+  for (const dir of skillDirs) {
+    const normalizedSkillsDir = path.normalize(dir);
+    if (normalizedTarget.startsWith(normalizedSkillsDir + path.sep) || normalizedTarget === normalizedSkillsDir) {
+      matchedSkillsDir = normalizedSkillsDir;
+      break;
+    }
+  }
+
+  if (matchedSkillsDir) {
+    const rel = path.relative(matchedSkillsDir, normalizedTarget);
     if (rel.startsWith("..") || path.isAbsolute(rel)) {
-      return { allowed: false, reason: "path_escape: write to ~/.claude/ outside skills/<name>/" };
+      return { allowed: false, reason: "path_escape: write outside skills/<name>/" };
     }
 
     const isSkillMd = /^[^/]+\/SKILL\.md$/.test(rel);
@@ -176,10 +187,9 @@ export function scanWrite(
     const isTemplates = /^[^/]+\/templates\//.test(rel);
 
     if (!isSkillMd && !isReferences && !isTemplates) {
-      return { allowed: false, reason: "path_escape: write to ~/.claude/skills/ must be to <name>/SKILL.md, <name>/references/**, or <name>/templates/**" };
+      return { allowed: false, reason: "path_escape: write to skills/ must be to <name>/SKILL.md, <name>/references/**, or <name>/templates/**" };
     }
 
-    // File type restriction for auxiliary directories
     const ALLOWED_AUX_EXTENSIONS = [".md", ".txt", ".yaml", ".yml", ".json"];
     if (isReferences || isTemplates) {
       const ext = path.extname(normalizedTarget).toLowerCase();
