@@ -1,4 +1,5 @@
-import { scanWrite, scanDirectory } from "../lib/security.js";
+import { scanWrite, scanDirectory, _setSkillsDirs } from "../lib/security.js";
+import { getAdapter } from "../lib/adapter.js";
 import type { ScanResult } from "../types.js";
 import type { Logger } from "../lib/logger.js";
 
@@ -14,6 +15,9 @@ interface SecurityScanArgs {
 }
 
 export function handleSecurityScan(args: SecurityScanArgs, logger?: Logger): ScanResult {
+  const adapter = getAdapter();
+  _setSkillsDirs(adapter.skillDirs);
+
   let result: ScanResult;
 
   if (args.scanDir) {

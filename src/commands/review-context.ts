@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { getAdapter } from "../lib/adapter.js";
 import { parseTranscript } from "../lib/transcript.js";
 import type { Logger } from "../lib/logger.js";
 
@@ -20,7 +21,8 @@ interface ReviewContextResult {
 
 export function handleReviewContext(options: ReviewContextOptions, logger?: Logger): ReviewContextResult {
   const skillsDir = options.skillsDir ?? path.join(os.homedir(), ".claude", "skills");
-  const transcript = parseTranscript(options.transcriptPath);
+  const adapter = getAdapter();
+  const transcript = parseTranscript(options.transcriptPath, adapter.transcriptFormat);
 
   let existingSkills: string[] = [];
   try {

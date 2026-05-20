@@ -3,8 +3,7 @@
 
 // src/runtime.ts
 import fs13 from "node:fs";
-import path11 from "node:path";
-import os7 from "node:os";
+import path14 from "node:path";
 
 // src/lib/config.ts
 import fs from "node:fs";
@@ -453,11 +452,253 @@ function handlePostToolUse(statePath, sessionsDir, input, logger, threshold = 10
 }
 
 // src/lib/spawner.ts
-import { spawn } from "node:child_process";
 import fs4 from "node:fs";
+import path7 from "node:path";
+import crypto from "node:crypto";
+
+// src/lib/adapters/claude-code.ts
+import { spawn } from "node:child_process";
 import path4 from "node:path";
 import os from "node:os";
-import crypto from "node:crypto";
+var ClaudeCodeAdapter = class {
+  platform = "claude-code";
+  pluginManifestDir = ".claude-plugin";
+  skillDirs = [path4.join(os.homedir(), ".claude", "skills")];
+  envPluginRoot = "CLAUDE_PLUGIN_ROOT";
+  envPluginData = "CLAUDE_PLUGIN_DATA";
+  envSessionId = "SELF_EVOLUTION_SESSION_ID";
+  companionCommand = "claude";
+  hookFile = "hooks/hooks.json";
+  hookEventNames = {
+    "session-start": "SessionStart",
+    "post-tool-use": "PostToolUse",
+    "stop": "Stop"
+  };
+  transcriptFormat = "json-array";
+  companionFlags(opts) {
+    const flags = [
+      "-p",
+      "",
+      "--allowedTools",
+      "Read,Write,Bash,Glob,Grep,Skill",
+      "--max-turns",
+      String(opts.reviewMaxTurns ?? 8),
+      "--output-format",
+      "json"
+    ];
+    if (opts.reviewModel) {
+      flags.push("--model", opts.reviewModel);
+    }
+    return flags;
+  }
+  spawnCompanion(prompt, opts, logFd) {
+    const flags = this.companionFlags(opts);
+    flags[1] = prompt;
+    const child = spawn(this.companionCommand, flags, {
+      detached: true,
+      stdio: ["ignore", logFd ?? "ignore", logFd ?? "ignore"],
+      env: {
+        ...process.env,
+        ...this.getCompanionEnv(opts)
+      }
+    });
+    child.unref();
+    return child;
+  }
+  getCompanionEnv(opts) {
+    return {
+      CLAUDE_PLUGIN_ROOT: opts.pluginRoot,
+      CLAUDE_PLUGIN_DATA: opts.pluginData,
+      SELF_EVOLUTION_SESSION_ID: opts.sessionId,
+      SELF_EVOLUTION_TRANSCRIPT_PATH: opts.transcriptPath,
+      SELF_EVOLUTION_REVIEW_MODE: "1"
+    };
+  }
+  resolvePluginRoot() {
+    return process.env.CLAUDE_PLUGIN_ROOT ?? "";
+  }
+  resolvePluginData(pluginRoot) {
+    if (process.env.CLAUDE_PLUGIN_DATA) return process.env.CLAUDE_PLUGIN_DATA;
+    if (pluginRoot) {
+      const name = path4.basename(pluginRoot);
+      const marketplace = path4.basename(path4.dirname(pluginRoot));
+      return path4.join(os.homedir(), ".claude", "plugins", "data", `${name}-${marketplace}`);
+    }
+    return path4.join(os.homedir(), ".claude", "plugins", "data", "self-evolution-self-evolution-marketplace");
+  }
+};
+
+// src/lib/adapters/codex.ts
+import { spawn as spawn2 } from "node:child_process";
+import path5 from "node:path";
+import os2 from "node:os";
+var CodexAdapter = class {
+  platform = "codex";
+  pluginManifestDir = ".codex-plugin";
+  skillDirs = [
+    path5.join(os2.homedir(), ".agents", "skills"),
+    path5.join(os2.homedir(), ".claude", "skills")
+  ];
+  envPluginRoot = "PLUGIN_ROOT";
+  envPluginData = "PLUGIN_DATA";
+  envSessionId = "CODEX_SESSION_ID";
+  companionCommand = "codex";
+  hookFile = "hooks/hooks.codex.json";
+  hookEventNames = {
+    "session-start": "SessionStart",
+    "post-tool-use": "PostToolUse",
+    "stop": "Stop"
+  };
+  transcriptFormat = "codex-jsonl";
+  companionFlags(opts) {
+    const flags = ["exec", "", "--json"];
+    if (opts.reviewModel) {
+      flags.push("--model", opts.reviewModel);
+    }
+    return flags;
+  }
+  spawnCompanion(prompt, opts, logFd) {
+    const flags = this.companionFlags(opts);
+    flags[1] = prompt;
+    const child = spawn2(this.companionCommand, flags, {
+      detached: true,
+      stdio: ["ignore", logFd ?? "ignore", logFd ?? "ignore"],
+      env: {
+        ...process.env,
+        ...this.getCompanionEnv(opts)
+      }
+    });
+    child.unref();
+    return child;
+  }
+  getCompanionEnv(opts) {
+    return {
+      PLUGIN_ROOT: opts.pluginRoot,
+      PLUGIN_DATA: opts.pluginData,
+      CLAUDE_PLUGIN_ROOT: opts.pluginRoot,
+      CLAUDE_PLUGIN_DATA: opts.pluginData,
+      SELF_EVOLUTION_SESSION_ID: opts.sessionId,
+      SELF_EVOLUTION_TRANSCRIPT_PATH: opts.transcriptPath,
+      SELF_EVOLUTION_REVIEW_MODE: "1"
+    };
+  }
+  resolvePluginRoot() {
+    return process.env.PLUGIN_ROOT ?? process.env.CLAUDE_PLUGIN_ROOT ?? "";
+  }
+  resolvePluginData(pluginRoot) {
+    if (process.env.PLUGIN_DATA) return process.env.PLUGIN_DATA;
+    if (process.env.CLAUDE_PLUGIN_DATA) return process.env.CLAUDE_PLUGIN_DATA;
+    if (pluginRoot) {
+      const name = path5.basename(pluginRoot);
+      const marketplace = path5.basename(path5.dirname(pluginRoot));
+      return path5.join(os2.homedir(), ".claude", "plugins", "data", `${name}-${marketplace}`);
+    }
+    return path5.join(os2.homedir(), ".claude", "plugins", "data", "self-evolution-self-evolution-marketplace");
+  }
+};
+
+// src/lib/adapters/cursor.ts
+import { spawn as spawn3 } from "node:child_process";
+import path6 from "node:path";
+import os3 from "node:os";
+var CursorAdapter = class {
+  platform = "cursor";
+  pluginManifestDir = ".cursor-plugin";
+  skillDirs = [
+    path6.join(os3.homedir(), ".cursor", "skills"),
+    path6.join(os3.homedir(), ".claude", "skills"),
+    path6.join(os3.homedir(), ".agents", "skills")
+  ];
+  envPluginRoot = "CURSOR_PROJECT_DIR";
+  envPluginData = "CURSOR_PLUGIN_DATA";
+  envSessionId = "CURSOR_SESSION_ID";
+  companionCommand = "agent";
+  hookFile = "hooks/hooks.cursor.json";
+  hookEventNames = {
+    "session-start": "sessionStart",
+    "post-tool-use": "postToolUse",
+    "stop": "stop"
+  };
+  transcriptFormat = "cursor-jsonl";
+  companionFlags(opts) {
+    const flags = ["-p", "", "--output-format", "text", "--sandbox", "enabled"];
+    if (opts.reviewModel) {
+      flags.push("--model", opts.reviewModel);
+    }
+    return flags;
+  }
+  spawnCompanion(prompt, opts, logFd) {
+    const flags = this.companionFlags(opts);
+    flags[1] = prompt;
+    const child = spawn3(this.companionCommand, flags, {
+      detached: true,
+      stdio: ["ignore", logFd ?? "ignore", logFd ?? "ignore"],
+      env: {
+        ...process.env,
+        ...this.getCompanionEnv(opts)
+      }
+    });
+    child.unref();
+    return child;
+  }
+  getCompanionEnv(opts) {
+    return {
+      CURSOR_PROJECT_DIR: opts.pluginRoot,
+      CLAUDE_PROJECT_DIR: opts.pluginRoot,
+      CLAUDE_PLUGIN_ROOT: opts.pluginRoot,
+      CLAUDE_PLUGIN_DATA: opts.pluginData,
+      SELF_EVOLUTION_SESSION_ID: opts.sessionId,
+      SELF_EVOLUTION_TRANSCRIPT_PATH: opts.transcriptPath,
+      SELF_EVOLUTION_REVIEW_MODE: "1"
+    };
+  }
+  resolvePluginRoot() {
+    return process.env.CURSOR_PROJECT_DIR ?? process.env.CLAUDE_PROJECT_DIR ?? process.env.CLAUDE_PLUGIN_ROOT ?? "";
+  }
+  resolvePluginData(pluginRoot) {
+    if (process.env.CURSOR_PLUGIN_DATA) return process.env.CURSOR_PLUGIN_DATA;
+    if (process.env.CLAUDE_PLUGIN_DATA) return process.env.CLAUDE_PLUGIN_DATA;
+    if (pluginRoot) {
+      const name = path6.basename(pluginRoot);
+      const marketplace = path6.basename(path6.dirname(pluginRoot));
+      return path6.join(os3.homedir(), ".claude", "plugins", "data", `${name}-${marketplace}`);
+    }
+    return path6.join(os3.homedir(), ".claude", "plugins", "data", "self-evolution-self-evolution-marketplace");
+  }
+};
+
+// src/lib/adapter.ts
+function detectPlatform() {
+  if (process.env.CURSOR_PROJECT_DIR) return "cursor";
+  if (process.env.CODEX_SESSION_ID) return "codex";
+  if (process.env.CLAUDE_PLUGIN_ROOT) return "claude-code";
+  return "claude-code";
+}
+function normalizeHookInput(raw, _platform) {
+  return {
+    sessionId: String(raw.session_id ?? raw.sessionId ?? ""),
+    transcriptPath: raw.transcript_path != null ? String(raw.transcript_path) : raw.transcriptPath != null ? String(raw.transcriptPath) : null,
+    toolName: raw.tool_name != null ? String(raw.tool_name) : raw.toolName != null ? String(raw.toolName) : void 0,
+    toolInput: raw.tool_input ?? raw.toolInput,
+    cwd: raw.cwd != null ? String(raw.cwd) : void 0,
+    hookEventName: raw.hook_event_name != null ? String(raw.hook_event_name) : raw.hookEventName != null ? String(raw.hookEventName) : void 0,
+    model: raw.model != null ? String(raw.model) : void 0,
+    permissionMode: raw.permission_mode != null ? String(raw.permission_mode) : raw.permissionMode != null ? String(raw.permissionMode) : void 0
+  };
+}
+function getAdapter(platform) {
+  const p = platform || process.env.SELF_EVOLUTION_PLATFORM || detectPlatform();
+  switch (p) {
+    case "codex":
+      return new CodexAdapter();
+    case "cursor":
+      return new CursorAdapter();
+    default:
+      return new ClaudeCodeAdapter();
+  }
+}
+
+// src/lib/spawner.ts
 function selectPromptVariant(existingSkills, transcriptContent) {
   if (!transcriptContent || transcriptContent.trim().length === 0) {
     return "combined";
@@ -479,27 +720,31 @@ function selectPromptVariant(existingSkills, transcriptContent) {
   }
   return "skill";
 }
-function readExistingSkills() {
-  const skillsDir = path4.join(os.homedir(), ".claude", "skills");
+function readExistingSkills(skillDirs) {
+  const seen = /* @__PURE__ */ new Set();
   const skills = [];
-  try {
-    const entries = fs4.readdirSync(skillsDir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const skillPath = path4.join(skillsDir, entry.name, "SKILL.md");
-      try {
-        const content = fs4.readFileSync(skillPath, "utf-8");
-        const nameMatch = content.match(/^---\n[\s\S]*?\bname:\s*(.+)\n/);
-        const descMatch = content.match(/^---\n[\s\S]*?\bdescription:\s*(.+)\n/);
-        skills.push({
-          name: nameMatch ? nameMatch[1].trim().replace(/^['"]|['"]$/g, "") : entry.name,
-          description: descMatch ? descMatch[1].trim().replace(/^['"]|['"]$/g, "") : ""
-        });
-      } catch {
-        skills.push({ name: entry.name, description: "" });
+  for (const skillsDir of skillDirs) {
+    try {
+      const entries = fs4.readdirSync(skillsDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        if (seen.has(entry.name)) continue;
+        seen.add(entry.name);
+        const skillPath = path7.join(skillsDir, entry.name, "SKILL.md");
+        try {
+          const content = fs4.readFileSync(skillPath, "utf-8");
+          const nameMatch = content.match(/^---\n[\s\S]*?\bname:\s*(.+)\n/);
+          const descMatch = content.match(/^---\n[\s\S]*?\bdescription:\s*(.+)\n/);
+          skills.push({
+            name: nameMatch ? nameMatch[1].trim().replace(/^['"]|['"]$/g, "") : entry.name,
+            description: descMatch ? descMatch[1].trim().replace(/^['"]|['"]$/g, "") : ""
+          });
+        } catch {
+          skills.push({ name: entry.name, description: "" });
+        }
       }
+    } catch {
     }
-  } catch {
   }
   return skills;
 }
@@ -529,13 +774,13 @@ function buildReviewPrompt(opts, pluginRoot, variant = "default") {
       templateName = "review-prompt.md";
       break;
   }
-  const templatePath = path4.join(pluginRoot, "prompts", templateName);
+  const templatePath = path7.join(pluginRoot, "prompts", templateName);
   let template;
   try {
     template = fs4.readFileSync(templatePath, "utf-8");
   } catch {
     try {
-      template = fs4.readFileSync(path4.join(pluginRoot, "prompts", "review-prompt.md"), "utf-8");
+      template = fs4.readFileSync(path7.join(pluginRoot, "prompts", "review-prompt.md"), "utf-8");
     } catch {
       template = `You are a self-evolution reviewer. A conversation has ended and the nudge threshold was met.
 
@@ -560,45 +805,21 @@ NEVER output ok:false. Always complete and exit.`;
   }
   return template.replace(/\${SELF_EVOLUTION_SESSION_ID}/g, opts.sessionId).replace(/\${CLAUDE_PLUGIN_ROOT}/g, opts.pluginRoot).replace(/\${CLAUDE_PLUGIN_DATA}/g, opts.pluginData).replace(/\${SELF_EVOLUTION_TRANSCRIPT_PATH}/g, opts.transcriptPath);
 }
-var ClaudeCodeSpawner = class {
-  platform = "claude-code";
+var AdapterSpawner = class {
   async spawnReviewProcess(opts, callbacks) {
-    const existingSkills = readExistingSkills();
+    const adapter = this.getAdapterInstance();
+    const existingSkills = readExistingSkills(adapter.skillDirs);
     const transcriptContent = readTranscriptContent(opts.transcriptPath);
     const variant = selectPromptVariant(existingSkills, transcriptContent);
     const prompt = buildReviewPrompt(opts, opts.pluginRoot, variant);
-    const args = [
-      "-p",
-      prompt,
-      "--allowedTools",
-      "Read,Write,Bash,Glob,Grep,Skill",
-      "--max-turns",
-      String(opts.reviewMaxTurns ?? 8),
-      "--output-format",
-      "json"
-    ];
-    if (opts.reviewModel) {
-      args.push("--model", opts.reviewModel);
-    }
-    const sessionDir = path4.join(opts.pluginData, "sessions", opts.sessionId);
+    const sessionDir = path7.join(opts.pluginData, "sessions", opts.sessionId);
     let logFd;
     try {
       fs4.mkdirSync(sessionDir, { recursive: true });
-      logFd = fs4.openSync(path4.join(sessionDir, "companion.log"), "a");
+      logFd = fs4.openSync(path7.join(sessionDir, "companion.log"), "a");
     } catch {
     }
-    const child = spawn("claude", args, {
-      detached: true,
-      stdio: ["ignore", logFd ?? "ignore", logFd ?? "ignore"],
-      env: {
-        ...process.env,
-        CLAUDE_PLUGIN_ROOT: opts.pluginRoot,
-        CLAUDE_PLUGIN_DATA: opts.pluginData,
-        SELF_EVOLUTION_SESSION_ID: opts.sessionId,
-        SELF_EVOLUTION_TRANSCRIPT_PATH: opts.transcriptPath,
-        SELF_EVOLUTION_REVIEW_MODE: "1"
-      }
-    });
+    const child = adapter.spawnCompanion(prompt, opts, logFd);
     const jobId = generateId();
     child.on("error", (err) => {
       callbacks?.onJobError?.(jobId, err);
@@ -612,7 +833,6 @@ var ClaudeCodeSpawner = class {
       }
       callbacks?.onJobExit?.(jobId, code);
     });
-    child.unref();
     const job = {
       id: jobId,
       session_id: opts.sessionId,
@@ -624,28 +844,30 @@ var ClaudeCodeSpawner = class {
     return job;
   }
 };
-var CodexSpawner = class {
+var ClaudeCodeSpawner = class extends AdapterSpawner {
+  platform = "claude-code";
+  getAdapterInstance() {
+    return getAdapter("claude-code");
+  }
+};
+var CodexSpawner = class extends AdapterSpawner {
   platform = "codex";
-  async spawnReviewProcess(_opts, _callbacks) {
-    throw new Error("Codex spawner not implemented. Set platform=claude-code or implement CodexSpawner.");
+  getAdapterInstance() {
+    return getAdapter("codex");
   }
 };
-var CursorSpawner = class {
+var CursorSpawner = class extends AdapterSpawner {
   platform = "cursor";
-  async spawnReviewProcess(_opts, _callbacks) {
-    throw new Error("Cursor spawner not implemented. Set platform=claude-code or implement CursorSpawner.");
+  getAdapterInstance() {
+    return getAdapter("cursor");
   }
 };
-function detectPlatform() {
-  if (process.env.CLAUDE_PLUGIN_ROOT) return "claude-code";
-  if (process.env.CODEX_SESSION_ID) return "codex";
-  return "claude-code";
+function detectPlatform2() {
+  return detectPlatform();
 }
 function getSpawner(platform) {
-  const p = platform || process.env.SELF_EVOLUTION_PLATFORM || detectPlatform();
+  const p = platform || process.env.SELF_EVOLUTION_PLATFORM || detectPlatform2();
   switch (p) {
-    case "claude-code":
-      return new ClaudeCodeSpawner();
     case "codex":
       return new CodexSpawner();
     case "cursor":
@@ -720,15 +942,18 @@ function handleStopGate(statePath, sessionsDir, sessionId, input, options, logge
 }
 
 // src/lib/security.ts
-import path5 from "node:path";
-import os2 from "node:os";
+import path8 from "node:path";
+import os4 from "node:os";
 import fs5 from "node:fs";
-var _skillsDir = null;
-function getSkillsDir() {
-  if (!_skillsDir) {
-    _skillsDir = path5.join(os2.homedir(), ".claude", "skills");
+var _skillDirs = null;
+function _setSkillsDirs(dirs) {
+  _skillDirs = dirs;
+}
+function getSkillDirs() {
+  if (!_skillDirs) {
+    _skillDirs = [path8.join(os4.homedir(), ".claude", "skills")];
   }
-  return _skillsDir;
+  return _skillDirs;
 }
 var SECURITY_PATTERNS = [
   // Prompt injection (migrated from PI_PATTERN)
@@ -842,23 +1067,30 @@ function applyTrustPolicy(severity, trust = "agent-created") {
 }
 function scanWrite(targetPath, content, options = {}) {
   const maxSkillSize = options.maxSkillSize ?? 262144;
-  const normalizedTarget = path5.normalize(targetPath);
-  const normalizedSkillsDir = path5.normalize(getSkillsDir());
-  const normalizedClaudeDir = path5.normalize(path5.join(os2.homedir(), ".claude"));
-  if (normalizedTarget.startsWith(normalizedClaudeDir + path5.sep) || normalizedTarget === normalizedClaudeDir) {
-    const rel = path5.relative(normalizedSkillsDir, normalizedTarget);
-    if (rel.startsWith("..") || path5.isAbsolute(rel)) {
-      return { allowed: false, reason: "path_escape: write to ~/.claude/ outside skills/<name>/" };
+  const normalizedTarget = path8.normalize(targetPath);
+  const skillDirs = getSkillDirs();
+  let matchedSkillsDir = null;
+  for (const dir of skillDirs) {
+    const normalizedSkillsDir = path8.normalize(dir);
+    if (normalizedTarget.startsWith(normalizedSkillsDir + path8.sep) || normalizedTarget === normalizedSkillsDir) {
+      matchedSkillsDir = normalizedSkillsDir;
+      break;
+    }
+  }
+  if (matchedSkillsDir) {
+    const rel = path8.relative(matchedSkillsDir, normalizedTarget);
+    if (rel.startsWith("..") || path8.isAbsolute(rel)) {
+      return { allowed: false, reason: "path_escape: write outside skills/<name>/" };
     }
     const isSkillMd = /^[^/]+\/SKILL\.md$/.test(rel);
     const isReferences = /^[^/]+\/references\//.test(rel);
     const isTemplates = /^[^/]+\/templates\//.test(rel);
     if (!isSkillMd && !isReferences && !isTemplates) {
-      return { allowed: false, reason: "path_escape: write to ~/.claude/skills/ must be to <name>/SKILL.md, <name>/references/**, or <name>/templates/**" };
+      return { allowed: false, reason: "path_escape: write to skills/ must be to <name>/SKILL.md, <name>/references/**, or <name>/templates/**" };
     }
     const ALLOWED_AUX_EXTENSIONS = [".md", ".txt", ".yaml", ".yml", ".json"];
     if (isReferences || isTemplates) {
-      const ext = path5.extname(normalizedTarget).toLowerCase();
+      const ext = path8.extname(normalizedTarget).toLowerCase();
       if (!ALLOWED_AUX_EXTENSIONS.includes(ext)) {
         return { allowed: false, reason: `file_type: auxiliary files must be one of ${ALLOWED_AUX_EXTENSIONS.join(", ")}, got '${ext}'` };
       }
@@ -914,7 +1146,7 @@ function scanDirectory(dirPath, options = {}) {
   const maxFileSize = options.maxFileSize ?? 262144;
   const maxTotalSize = options.maxTotalSize ?? 1048576;
   const binaryExtensions = options.binaryExtensions ?? [".exe", ".dll", ".so", ".dylib", ".bin", ".bat", ".cmd", ".ps1", ".com"];
-  const normalizedDir = path5.normalize(dirPath);
+  const normalizedDir = path8.normalize(dirPath);
   let fileCount = 0;
   let totalSize = 0;
   let resolvedBaseDir;
@@ -931,7 +1163,7 @@ function scanDirectory(dirPath, options = {}) {
       return { allowed: false, reason: `cannot scan directory: ${currentDir}` };
     }
     for (const entry of entries) {
-      const fullPath = path5.join(currentDir, entry.name);
+      const fullPath = path8.join(currentDir, entry.name);
       if (entry.isDirectory()) {
         const subResult = walkDir(fullPath);
         if (subResult && !subResult.allowed) return subResult;
@@ -940,13 +1172,13 @@ function scanDirectory(dirPath, options = {}) {
       const lstat = fs5.lstatSync(fullPath);
       if (lstat.isSymbolicLink()) {
         const resolved = fs5.realpathSync(fullPath);
-        const normalizedResolved = path5.normalize(resolved);
-        const baseDir = path5.normalize(resolvedBaseDir);
-        if (!normalizedResolved.startsWith(baseDir + path5.sep) && normalizedResolved !== baseDir) {
+        const normalizedResolved = path8.normalize(resolved);
+        const baseDir = path8.normalize(resolvedBaseDir);
+        if (!normalizedResolved.startsWith(baseDir + path8.sep) && normalizedResolved !== baseDir) {
           return { allowed: false, reason: `symlink escape: ${entry.name} -> ${resolved}` };
         }
       }
-      const ext = path5.extname(entry.name).toLowerCase();
+      const ext = path8.extname(entry.name).toLowerCase();
       if (binaryExtensions.includes(ext)) {
         return { allowed: false, reason: `binary file: ${entry.name}` };
       }
@@ -976,6 +1208,8 @@ function scanDirectory(dirPath, options = {}) {
 
 // src/commands/security-scan.ts
 function handleSecurityScan(args, logger) {
+  const adapter = getAdapter();
+  _setSkillsDirs(adapter.skillDirs);
   let result;
   if (args.scanDir) {
     result = scanDirectory(args.scanDir, {
@@ -1027,9 +1261,9 @@ function parseSecurityScanArgs(argv) {
 }
 
 // src/commands/validate-skill.ts
-import path6 from "node:path";
+import path9 from "node:path";
 import fs6 from "node:fs";
-import os3 from "node:os";
+import os5 from "node:os";
 function parseFrontmatter(lines) {
   const result = {};
   let hasKeyValuePairs = false;
@@ -1059,7 +1293,7 @@ function findSkillFiles(dir) {
   try {
     const entries = fs6.readdirSync(dir, { withFileTypes: true });
     for (const entry of entries) {
-      const fullPath = path6.join(dir, entry.name);
+      const fullPath = path9.join(dir, entry.name);
       if (entry.isDirectory()) {
         results.push(...findSkillFiles(fullPath));
       } else if (entry.name === "SKILL.md") {
@@ -1132,7 +1366,7 @@ function validateSkill(skillPath, content, mode = "create") {
   if (trimmedName.length > 64) {
     errors.push("name must be 64 characters or fewer");
   }
-  const dirName = path6.basename(path6.dirname(skillPath));
+  const dirName = path9.basename(path9.dirname(skillPath));
   if (trimmedName !== dirName) {
     errors.push("name must match the parent directory name");
   }
@@ -1140,11 +1374,11 @@ function validateSkill(skillPath, content, mode = "create") {
     return { valid: false, errors };
   }
   if (mode === "create") {
-    const skillsDir = path6.join(os3.homedir(), ".claude", "skills");
-    const normalizedTarget = path6.normalize(skillPath);
+    const skillsDir = path9.join(os5.homedir(), ".claude", "skills");
+    const normalizedTarget = path9.normalize(skillPath);
     const existingSkills = findSkillFiles(skillsDir);
     for (const existingPath of existingSkills) {
-      const normalizedExisting = path6.normalize(existingPath);
+      const normalizedExisting = path9.normalize(existingPath);
       if (normalizedExisting === normalizedTarget) {
         continue;
       }
@@ -1178,12 +1412,12 @@ function handleValidateSkill(args) {
 
 // src/commands/review-context.ts
 import fs8 from "node:fs";
-import path7 from "node:path";
-import os4 from "node:os";
+import path10 from "node:path";
+import os6 from "node:os";
 
 // src/lib/transcript.ts
 import fs7 from "node:fs";
-function parseTranscript(transcriptPath) {
+function parseTranscript(transcriptPath, format) {
   const summary = {
     toolCalls: [],
     userMessages: [],
@@ -1203,6 +1437,7 @@ function parseTranscript(transcriptPath) {
     return summary;
   }
   if (!raw) return summary;
+  const effectiveFormat = format || "json-array";
   let entries;
   try {
     const parsed = JSON.parse(raw);
@@ -1222,6 +1457,19 @@ function parseTranscript(transcriptPath) {
   }
   for (const entry of entries) {
     const e = entry;
+    if ((effectiveFormat === "codex-jsonl" || !format) && e.item) {
+      const item = e.item;
+      if (item.type === "command_execution") {
+        const toolCall = {
+          tool: "Bash",
+          input: { command: String(item.command ?? "") },
+          output: String(item.output ?? "")
+        };
+        summary.toolCalls.push(toolCall);
+        summary.totalTurns++;
+      }
+      continue;
+    }
     const type = e.type;
     const message = e.message;
     if (type === "user" && message) {
@@ -1298,8 +1546,9 @@ function parseTranscript(transcriptPath) {
 
 // src/commands/review-context.ts
 function handleReviewContext(options, logger) {
-  const skillsDir = options.skillsDir ?? path7.join(os4.homedir(), ".claude", "skills");
-  const transcript = parseTranscript(options.transcriptPath);
+  const skillsDir = options.skillsDir ?? path10.join(os6.homedir(), ".claude", "skills");
+  const adapter = getAdapter();
+  const transcript = parseTranscript(options.transcriptPath, adapter.transcriptFormat);
   let existingSkills = [];
   try {
     const entries = fs8.readdirSync(skillsDir, { withFileTypes: true });
@@ -1323,8 +1572,8 @@ function handleReviewContext(options, logger) {
 
 // src/commands/log-decision.ts
 import fs9 from "node:fs";
-import path8 from "node:path";
-import os5 from "node:os";
+import path11 from "node:path";
+import os7 from "node:os";
 var VALID_DECISIONS = ["CREATED", "UPDATED", "SKIPPED", "DELETED"];
 function isValidDecision(d) {
   return VALID_DECISIONS.includes(d);
@@ -1345,7 +1594,7 @@ function handleLogDecision(sessionsDir, statsPath, sessionId, decision, detail, 
     ...skillName ? { skill_name: skillName } : {}
   });
   if (skillName) {
-    const skillPath = path8.join(os5.homedir(), ".claude", "skills", skillName, "SKILL.md");
+    const skillPath = path11.join(os7.homedir(), ".claude", "skills", skillName, "SKILL.md");
     try {
       const stat = fs9.statSync(skillPath);
       logger.info("skill_written", { path: skillPath, size_bytes: stat.size });
@@ -1417,14 +1666,14 @@ function parseVerifySkillArgs(argv) {
   }
   return args;
 }
-function handleVerifySkill(path12, content) {
-  return verifySkill(path12, content);
+function handleVerifySkill(path15, content) {
+  return verifySkill(path15, content);
 }
 
 // src/commands/delete-skill.ts
 import fs11 from "node:fs";
-import path9 from "node:path";
-import os6 from "node:os";
+import path12 from "node:path";
+import os8 from "node:os";
 var VALID_SKILL_NAME = /^[a-z0-9][a-z0-9._-]*$/;
 function handleDeleteSkill(args) {
   if (!args.name) {
@@ -1433,10 +1682,10 @@ function handleDeleteSkill(args) {
   if (args.name.includes("/") || !VALID_SKILL_NAME.test(args.name)) {
     return { success: false, message: `invalid skill name: '${args.name}'` };
   }
-  const skillDir = path9.join(os6.homedir(), ".claude", "skills", args.name);
-  const normalizedSkillDir = path9.normalize(skillDir);
-  const normalizedSkillsDir = path9.normalize(path9.join(os6.homedir(), ".claude", "skills"));
-  if (!normalizedSkillDir.startsWith(normalizedSkillsDir + path9.sep) && normalizedSkillDir !== normalizedSkillsDir) {
+  const skillDir = path12.join(os8.homedir(), ".claude", "skills", args.name);
+  const normalizedSkillDir = path12.normalize(skillDir);
+  const normalizedSkillsDir = path12.normalize(path12.join(os8.homedir(), ".claude", "skills"));
+  if (!normalizedSkillDir.startsWith(normalizedSkillsDir + path12.sep) && normalizedSkillDir !== normalizedSkillsDir) {
     return { success: false, message: `invalid skill name: '${args.name}' (path traversal blocked)` };
   }
   if (!fs11.existsSync(skillDir)) {
@@ -1492,7 +1741,7 @@ function handleConfigGet(pluginRoot, pluginData, filterKey) {
 
 // src/commands/config-set.ts
 import fs12 from "node:fs";
-import path10 from "node:path";
+import path13 from "node:path";
 function parseConfigSetArgs(argv) {
   const args = { key: "", value: "", reset: false };
   for (let i = 0; i < argv.length; i++) {
@@ -1520,7 +1769,7 @@ function handleConfigSet(pluginRoot, pluginData, key, rawValue, reset = false) {
   if (reset) {
     const raw2 = loadRawConfig(pluginRoot, pluginData);
     delete raw2[key];
-    const configPath2 = path10.join(pluginData, "config.json");
+    const configPath2 = path13.join(pluginData, "config.json");
     try {
       fs12.mkdirSync(pluginData, { recursive: true });
       fs12.writeFileSync(configPath2, JSON.stringify(raw2, null, 2) + "\n");
@@ -1540,7 +1789,7 @@ function handleConfigSet(pluginRoot, pluginData, key, rawValue, reset = false) {
   }
   const raw = loadRawConfig(pluginRoot, pluginData);
   raw[key] = validation.value;
-  const configPath = path10.join(pluginData, "config.json");
+  const configPath = path13.join(pluginData, "config.json");
   try {
     fs12.mkdirSync(pluginData, { recursive: true });
     fs12.writeFileSync(configPath, JSON.stringify(raw, null, 2) + "\n");
@@ -1555,20 +1804,14 @@ function handleConfigSet(pluginRoot, pluginData, key, rawValue, reset = false) {
 
 // src/runtime.ts
 function resolvePaths() {
-  const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT ?? "";
-  const pluginData = process.env.CLAUDE_PLUGIN_DATA ?? (() => {
-    if (pluginRoot) {
-      const name = path11.basename(pluginRoot);
-      const marketplace = path11.basename(path11.dirname(pluginRoot));
-      return path11.join(os7.homedir(), ".claude", "plugins", "data", `${name}-${marketplace}`);
-    }
-    return path11.join(os7.homedir(), ".claude", "plugins", "data", "self-evolution-self-evolution-marketplace");
-  })();
+  const adapter = getAdapter();
+  const pluginRoot = adapter.resolvePluginRoot();
+  const pluginData = adapter.resolvePluginData(pluginRoot);
   const config = resolveConfig(pluginRoot, pluginData);
   return {
-    statePath: path11.join(pluginData, "state.json"),
-    sessionsDir: path11.join(pluginData, "sessions"),
-    statsPath: path11.join(pluginData, "stats.json"),
+    statePath: path14.join(pluginData, "state.json"),
+    sessionsDir: path14.join(pluginData, "sessions"),
+    statsPath: path14.join(pluginData, "stats.json"),
     pluginRoot,
     pluginData,
     config
@@ -1583,8 +1826,9 @@ function runCommand(command, args, stdinData) {
         let sessionId;
         if (stdinData) {
           try {
-            const input = JSON.parse(stdinData);
-            sessionId = input.session_id ?? process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`;
+            const raw = JSON.parse(stdinData);
+            const input = normalizeHookInput(raw, getAdapter().platform);
+            sessionId = input.sessionId || process.env.SELF_EVOLUTION_SESSION_ID || `session-${Date.now()}`;
           } catch {
             sessionId = process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`;
           }
@@ -1597,18 +1841,24 @@ function runCommand(command, args, stdinData) {
       }
       case "post-tool-use": {
         if (!stdinData) return 0;
-        const input = JSON.parse(stdinData);
-        const sessionId = input.session_id ?? process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`;
+        const raw = JSON.parse(stdinData);
+        const input = normalizeHookInput(raw, getAdapter().platform);
+        const sessionId = input.sessionId || process.env.SELF_EVOLUTION_SESSION_ID || `session-${Date.now()}`;
         const logger = createLogger(sessionsDir, sessionId, logLevel);
-        handlePostToolUse(statePath, sessionsDir, input, logger, config.nudge_interval);
+        handlePostToolUse(statePath, sessionsDir, raw, logger, config.nudge_interval);
         return 0;
       }
       case "stop-gate": {
         if (!stdinData) return 0;
-        const input = JSON.parse(stdinData);
-        const sessionId = input.session_id ?? process.env.SELF_EVOLUTION_SESSION_ID ?? `session-${Date.now()}`;
+        const raw = JSON.parse(stdinData);
+        const input = normalizeHookInput(raw, getAdapter().platform);
+        const sessionId = input.sessionId || process.env.SELF_EVOLUTION_SESSION_ID || `session-${Date.now()}`;
         const logger = createLogger(sessionsDir, sessionId, logLevel);
-        handleStopGate(statePath, sessionsDir, sessionId, input, {
+        handleStopGate(statePath, sessionsDir, sessionId, {
+          session_id: sessionId,
+          transcript_path: input.transcriptPath ?? "",
+          stop_hook_active: raw.stop_hook_active ?? raw.stopHookActive ?? false
+        }, {
           pluginRoot,
           pluginData,
           reviewModel: config.review_model,
