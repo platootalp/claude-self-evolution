@@ -104,7 +104,6 @@ export interface PlatformAdapter {
   readonly companionCommand: string;
   readonly companionFlags: (opts: SpawnOptions) => string[];
   readonly hookFile: string;
-  readonly hookEventNames: Record<string, string>;
   readonly transcriptFormat: string;
   spawnCompanion(prompt: string, opts: SpawnOptions, logFd?: number): ChildProcess;
   getCompanionEnv(opts: SpawnOptions): Record<string, string>;

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 
 describe("detectPlatform", () => {
   const originalEnv = { ...process.env };
@@ -15,28 +15,54 @@ describe("detectPlatform", () => {
     expect(detectPlatform()).toBe("claude-code");
   });
 
-  it("returns codex when CODEX_SESSION_ID is set (even if CLAUDE_PLUGIN_ROOT also set)", async () => {
-    process.env.CLAUDE_PLUGIN_ROOT = "/some/path";
+  it("returns codex when CODEX_SESSION_ID is set alone", async () => {
+    delete process.env.CLAUDE_PLUGIN_ROOT;
     process.env.CODEX_SESSION_ID = "session-123";
     delete process.env.CURSOR_PROJECT_DIR;
     const { detectPlatform } = await import("../lib/adapter.js");
     expect(detectPlatform()).toBe("codex");
   });
 
-  it("returns cursor when CURSOR_PROJECT_DIR is set (even if CODEX_SESSION_ID also set)", async () => {
+  it("returns cursor when CURSOR_PROJECT_DIR is set alone", async () => {
+    delete process.env.CLAUDE_PLUGIN_ROOT;
+    delete process.env.CODEX_SESSION_ID;
+    process.env.CURSOR_PROJECT_DIR = "/project";
+    const { detectPlatform } = await import("../lib/adapter.js");
+    expect(detectPlatform()).toBe("cursor");
+  });
+
+  it("returns claude-code when CLAUDE_PLUGIN_ROOT is set (takes priority over CODEX_SESSION_ID)", async () => {
+    process.env.CLAUDE_PLUGIN_ROOT = "/some/path";
+    process.env.CODEX_SESSION_ID = "session-123";
+    delete process.env.CURSOR_PROJECT_DIR;
+    const { detectPlatform } = await import("../lib/adapter.js");
+    expect(detectPlatform()).toBe("claude-code");
+  });
+
+  it("returns claude-code when CLAUDE_PLUGIN_ROOT is set (takes priority over CURSOR_PROJECT_DIR)", async () => {
+    process.env.CLAUDE_PLUGIN_ROOT = "/some/path";
+    delete process.env.CODEX_SESSION_ID;
+    process.env.CURSOR_PROJECT_DIR = "/project";
+    const { detectPlatform } = await import("../lib/adapter.js");
+    expect(detectPlatform()).toBe("claude-code");
+  });
+
+  it("returns claude-code when all three env vars are set (CLAUDE_PLUGIN_ROOT takes priority)", async () => {
     process.env.CLAUDE_PLUGIN_ROOT = "/some/path";
     process.env.CODEX_SESSION_ID = "session-123";
     process.env.CURSOR_PROJECT_DIR = "/project";
     const { detectPlatform } = await import("../lib/adapter.js");
-    expect(detectPlatform()).toBe("cursor");
+    expect(detectPlatform()).toBe("claude-code");
   });
 
   it("defaults to claude-code when no platform env vars set", async () => {
     delete process.env.CLAUDE_PLUGIN_ROOT;
     delete process.env.CODEX_SESSION_ID;
     delete process.env.CURSOR_PROJECT_DIR;
+    const spy = vi.spyOn(process, "cwd").mockReturnValue("/tmp/no-plugin-manifests");
     const { detectPlatform } = await import("../lib/adapter.js");
     expect(detectPlatform()).toBe("claude-code");
+    spy.mockRestore();
   });
 });
 

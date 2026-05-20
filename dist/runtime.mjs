@@ -2,8 +2,8 @@
 
 
 // src/runtime.ts
-import fs13 from "node:fs";
-import path14 from "node:path";
+import fs14 from "node:fs";
+import path13 from "node:path";
 
 // src/lib/config.ts
 import fs from "node:fs";
@@ -452,9 +452,12 @@ function handlePostToolUse(statePath, sessionsDir, input, logger, threshold = 10
 }
 
 // src/lib/spawner.ts
-import fs4 from "node:fs";
+import fs5 from "node:fs";
 import path7 from "node:path";
 import crypto from "node:crypto";
+
+// src/lib/adapter.ts
+import fs4 from "node:fs";
 
 // src/lib/adapters/claude-code.ts
 import { spawn } from "node:child_process";
@@ -469,11 +472,6 @@ var ClaudeCodeAdapter = class {
   envSessionId = "SELF_EVOLUTION_SESSION_ID";
   companionCommand = "claude";
   hookFile = "hooks/hooks.json";
-  hookEventNames = {
-    "session-start": "SessionStart",
-    "post-tool-use": "PostToolUse",
-    "stop": "Stop"
-  };
   transcriptFormat = "json-array";
   companionFlags(opts) {
     const flags = [
@@ -544,11 +542,6 @@ var CodexAdapter = class {
   envSessionId = "CODEX_SESSION_ID";
   companionCommand = "codex";
   hookFile = "hooks/hooks.codex.json";
-  hookEventNames = {
-    "session-start": "SessionStart",
-    "post-tool-use": "PostToolUse",
-    "stop": "Stop"
-  };
   transcriptFormat = "codex-jsonl";
   companionFlags(opts) {
     const flags = ["exec", "", "--json"];
@@ -614,11 +607,6 @@ var CursorAdapter = class {
   envSessionId = "CURSOR_SESSION_ID";
   companionCommand = "agent";
   hookFile = "hooks/hooks.cursor.json";
-  hookEventNames = {
-    "session-start": "sessionStart",
-    "post-tool-use": "postToolUse",
-    "stop": "stop"
-  };
   transcriptFormat = "cursor-jsonl";
   companionFlags(opts) {
     const flags = ["-p", "", "--output-format", "text", "--sandbox", "enabled"];
@@ -669,9 +657,17 @@ var CursorAdapter = class {
 
 // src/lib/adapter.ts
 function detectPlatform() {
-  if (process.env.CURSOR_PROJECT_DIR) return "cursor";
-  if (process.env.CODEX_SESSION_ID) return "codex";
   if (process.env.CLAUDE_PLUGIN_ROOT) return "claude-code";
+  if (process.env.CODEX_SESSION_ID) return "codex";
+  if (process.env.CURSOR_PROJECT_DIR) return "cursor";
+  try {
+    const cwd = process.cwd();
+    if (fs4.existsSync(`${cwd}/.cursor-plugin/plugin.json`)) return "cursor";
+    if (fs4.existsSync(`${cwd}/.codex-plugin/plugin.json`)) return "codex";
+    if (fs4.existsSync(`${cwd}/.claude-plugin/plugin.json`)) return "claude-code";
+  } catch {
+  }
+  process.stderr.write("[self-evolution] detectPlatform: no platform env vars found, defaulting to claude-code\n");
   return "claude-code";
 }
 function normalizeHookInput(raw, _platform) {
@@ -725,14 +721,14 @@ function readExistingSkills(skillDirs) {
   const skills = [];
   for (const skillsDir of skillDirs) {
     try {
-      const entries = fs4.readdirSync(skillsDir, { withFileTypes: true });
+      const entries = fs5.readdirSync(skillsDir, { withFileTypes: true });
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
         if (seen.has(entry.name)) continue;
         seen.add(entry.name);
         const skillPath = path7.join(skillsDir, entry.name, "SKILL.md");
         try {
-          const content = fs4.readFileSync(skillPath, "utf-8");
+          const content = fs5.readFileSync(skillPath, "utf-8");
           const nameMatch = content.match(/^---\n[\s\S]*?\bname:\s*(.+)\n/);
           const descMatch = content.match(/^---\n[\s\S]*?\bdescription:\s*(.+)\n/);
           skills.push({
@@ -750,7 +746,7 @@ function readExistingSkills(skillDirs) {
 }
 function readTranscriptContent(transcriptPath) {
   try {
-    return fs4.readFileSync(transcriptPath, "utf-8");
+    return fs5.readFileSync(transcriptPath, "utf-8");
   } catch {
     return "";
   }
@@ -777,10 +773,10 @@ function buildReviewPrompt(opts, pluginRoot, variant = "default") {
   const templatePath = path7.join(pluginRoot, "prompts", templateName);
   let template;
   try {
-    template = fs4.readFileSync(templatePath, "utf-8");
+    template = fs5.readFileSync(templatePath, "utf-8");
   } catch {
     try {
-      template = fs4.readFileSync(path7.join(pluginRoot, "prompts", "review-prompt.md"), "utf-8");
+      template = fs5.readFileSync(path7.join(pluginRoot, "prompts", "review-prompt.md"), "utf-8");
     } catch {
       template = `You are a self-evolution reviewer. A conversation has ended and the nudge threshold was met.
 
@@ -815,8 +811,8 @@ var AdapterSpawner = class {
     const sessionDir = path7.join(opts.pluginData, "sessions", opts.sessionId);
     let logFd;
     try {
-      fs4.mkdirSync(sessionDir, { recursive: true });
-      logFd = fs4.openSync(path7.join(sessionDir, "companion.log"), "a");
+      fs5.mkdirSync(sessionDir, { recursive: true });
+      logFd = fs5.openSync(path7.join(sessionDir, "companion.log"), "a");
     } catch {
     }
     const child = adapter.spawnCompanion(prompt, opts, logFd);
@@ -827,7 +823,7 @@ var AdapterSpawner = class {
     child.on("exit", (code) => {
       if (logFd !== void 0) {
         try {
-          fs4.closeSync(logFd);
+          fs5.closeSync(logFd);
         } catch {
         }
       }
@@ -944,7 +940,7 @@ function handleStopGate(statePath, sessionsDir, sessionId, input, options, logge
 // src/lib/security.ts
 import path8 from "node:path";
 import os4 from "node:os";
-import fs5 from "node:fs";
+import fs6 from "node:fs";
 var _skillDirs = null;
 function _setSkillsDirs(dirs) {
   _skillDirs = dirs;
@@ -1151,14 +1147,14 @@ function scanDirectory(dirPath, options = {}) {
   let totalSize = 0;
   let resolvedBaseDir;
   try {
-    resolvedBaseDir = fs5.realpathSync(normalizedDir);
+    resolvedBaseDir = fs6.realpathSync(normalizedDir);
   } catch {
     resolvedBaseDir = normalizedDir;
   }
   function walkDir(currentDir) {
     let entries;
     try {
-      entries = fs5.readdirSync(currentDir, { withFileTypes: true });
+      entries = fs6.readdirSync(currentDir, { withFileTypes: true });
     } catch {
       return { allowed: false, reason: `cannot scan directory: ${currentDir}` };
     }
@@ -1169,9 +1165,9 @@ function scanDirectory(dirPath, options = {}) {
         if (subResult && !subResult.allowed) return subResult;
         continue;
       }
-      const lstat = fs5.lstatSync(fullPath);
+      const lstat = fs6.lstatSync(fullPath);
       if (lstat.isSymbolicLink()) {
-        const resolved = fs5.realpathSync(fullPath);
+        const resolved = fs6.realpathSync(fullPath);
         const normalizedResolved = path8.normalize(resolved);
         const baseDir = path8.normalize(resolvedBaseDir);
         if (!normalizedResolved.startsWith(baseDir + path8.sep) && normalizedResolved !== baseDir) {
@@ -1182,7 +1178,7 @@ function scanDirectory(dirPath, options = {}) {
       if (binaryExtensions.includes(ext)) {
         return { allowed: false, reason: `binary file: ${entry.name}` };
       }
-      const stat = fs5.statSync(fullPath);
+      const stat = fs6.statSync(fullPath);
       if (stat.size > maxFileSize) {
         return { allowed: false, reason: `file too large: ${entry.name} (${stat.size} > ${maxFileSize} bytes)` };
       }
@@ -1262,7 +1258,7 @@ function parseSecurityScanArgs(argv) {
 
 // src/commands/validate-skill.ts
 import path9 from "node:path";
-import fs6 from "node:fs";
+import fs7 from "node:fs";
 import os5 from "node:os";
 function parseFrontmatter(lines) {
   const result = {};
@@ -1291,7 +1287,7 @@ function parseFrontmatter(lines) {
 function findSkillFiles(dir) {
   const results = [];
   try {
-    const entries = fs6.readdirSync(dir, { withFileTypes: true });
+    const entries = fs7.readdirSync(dir, { withFileTypes: true });
     for (const entry of entries) {
       const fullPath = path9.join(dir, entry.name);
       if (entry.isDirectory()) {
@@ -1306,7 +1302,7 @@ function findSkillFiles(dir) {
 }
 function extractNameFromFile(filePath) {
   try {
-    const content = fs6.readFileSync(filePath, "utf-8");
+    const content = fs7.readFileSync(filePath, "utf-8");
     const match = content.match(/^name:\s*(.+)$/m);
     if (match) {
       let name = match[1].trim();
@@ -1411,12 +1407,10 @@ function handleValidateSkill(args) {
 }
 
 // src/commands/review-context.ts
-import fs8 from "node:fs";
-import path10 from "node:path";
-import os6 from "node:os";
+import fs9 from "node:fs";
 
 // src/lib/transcript.ts
-import fs7 from "node:fs";
+import fs8 from "node:fs";
 function parseTranscript(transcriptPath, format) {
   const summary = {
     toolCalls: [],
@@ -1430,7 +1424,7 @@ function parseTranscript(transcriptPath, format) {
   }
   let raw;
   try {
-    raw = fs7.readFileSync(transcriptPath, "utf-8").trim();
+    raw = fs8.readFileSync(transcriptPath, "utf-8").trim();
   } catch (err) {
     process.stderr.write(`[self-evolution] parseTranscript: failed to read "${transcriptPath}": ${err}
 `);
@@ -1546,14 +1540,22 @@ function parseTranscript(transcriptPath, format) {
 
 // src/commands/review-context.ts
 function handleReviewContext(options, logger) {
-  const skillsDir = options.skillsDir ?? path10.join(os6.homedir(), ".claude", "skills");
   const adapter = getAdapter();
+  const skillsDirs = options.skillsDir ? [options.skillsDir] : adapter.skillDirs;
   const transcript = parseTranscript(options.transcriptPath, adapter.transcriptFormat);
-  let existingSkills = [];
-  try {
-    const entries = fs8.readdirSync(skillsDir, { withFileTypes: true });
-    existingSkills = entries.filter((e) => e.isDirectory()).map((e) => e.name);
-  } catch {
+  const seen = /* @__PURE__ */ new Set();
+  const existingSkills = [];
+  for (const skillsDir of skillsDirs) {
+    try {
+      const entries = fs9.readdirSync(skillsDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        if (seen.has(entry.name)) continue;
+        seen.add(entry.name);
+        existingSkills.push(entry.name);
+      }
+    } catch {
+    }
   }
   logger?.debug("context_retrieved", {
     session_id: options.sessionId ?? "unknown",
@@ -1571,9 +1573,9 @@ function handleReviewContext(options, logger) {
 }
 
 // src/commands/log-decision.ts
-import fs9 from "node:fs";
-import path11 from "node:path";
-import os7 from "node:os";
+import fs10 from "node:fs";
+import path10 from "node:path";
+import os6 from "node:os";
 var VALID_DECISIONS = ["CREATED", "UPDATED", "SKIPPED", "DELETED"];
 function isValidDecision(d) {
   return VALID_DECISIONS.includes(d);
@@ -1594,11 +1596,11 @@ function handleLogDecision(sessionsDir, statsPath, sessionId, decision, detail, 
     ...skillName ? { skill_name: skillName } : {}
   });
   if (skillName) {
-    const skillPath = path11.join(os7.homedir(), ".claude", "skills", skillName, "SKILL.md");
+    const skillPath = path10.join(os6.homedir(), ".claude", "skills", skillName, "SKILL.md");
     try {
-      const stat = fs9.statSync(skillPath);
+      const stat = fs10.statSync(skillPath);
       logger.info("skill_written", { path: skillPath, size_bytes: stat.size });
-      const content = fs9.readFileSync(skillPath, "utf-8");
+      const content = fs10.readFileSync(skillPath, "utf-8");
       logger.debug("skill_content_preview", { preview: content.slice(0, 200) });
     } catch {
       logger.info("skill_written", { skill_name: skillName });
@@ -1611,13 +1613,13 @@ function extractSkillName(detail) {
 }
 
 // src/commands/status.ts
-import fs10 from "node:fs";
+import fs11 from "node:fs";
 function handleStatus(statePath, statsPath) {
   pruneJobs(statePath);
   const state = loadState(statePath);
   let stats = null;
   let latestReview = null;
-  if (fs10.existsSync(statsPath)) {
+  if (fs11.existsSync(statsPath)) {
     stats = loadStats(statsPath);
     if (stats.recent_decisions && stats.recent_decisions.length > 0) {
       const latest = stats.recent_decisions[0];
@@ -1666,14 +1668,14 @@ function parseVerifySkillArgs(argv) {
   }
   return args;
 }
-function handleVerifySkill(path15, content) {
-  return verifySkill(path15, content);
+function handleVerifySkill(path14, content) {
+  return verifySkill(path14, content);
 }
 
 // src/commands/delete-skill.ts
-import fs11 from "node:fs";
-import path12 from "node:path";
-import os8 from "node:os";
+import fs12 from "node:fs";
+import path11 from "node:path";
+import os7 from "node:os";
 var VALID_SKILL_NAME = /^[a-z0-9][a-z0-9._-]*$/;
 function handleDeleteSkill(args) {
   if (!args.name) {
@@ -1682,17 +1684,17 @@ function handleDeleteSkill(args) {
   if (args.name.includes("/") || !VALID_SKILL_NAME.test(args.name)) {
     return { success: false, message: `invalid skill name: '${args.name}'` };
   }
-  const skillDir = path12.join(os8.homedir(), ".claude", "skills", args.name);
-  const normalizedSkillDir = path12.normalize(skillDir);
-  const normalizedSkillsDir = path12.normalize(path12.join(os8.homedir(), ".claude", "skills"));
-  if (!normalizedSkillDir.startsWith(normalizedSkillsDir + path12.sep) && normalizedSkillDir !== normalizedSkillsDir) {
+  const skillDir = path11.join(os7.homedir(), ".claude", "skills", args.name);
+  const normalizedSkillDir = path11.normalize(skillDir);
+  const normalizedSkillsDir = path11.normalize(path11.join(os7.homedir(), ".claude", "skills"));
+  if (!normalizedSkillDir.startsWith(normalizedSkillsDir + path11.sep) && normalizedSkillDir !== normalizedSkillsDir) {
     return { success: false, message: `invalid skill name: '${args.name}' (path traversal blocked)` };
   }
-  if (!fs11.existsSync(skillDir)) {
+  if (!fs12.existsSync(skillDir)) {
     return { success: false, message: `skill '${args.name}' not found` };
   }
   try {
-    fs11.rmSync(skillDir, { recursive: true, force: true });
+    fs12.rmSync(skillDir, { recursive: true, force: true });
     return { success: true, message: `skill '${args.name}' deleted` };
   } catch (err) {
     return { success: false, message: `failed to delete skill '${args.name}': ${err}` };
@@ -1740,8 +1742,8 @@ function handleConfigGet(pluginRoot, pluginData, filterKey) {
 }
 
 // src/commands/config-set.ts
-import fs12 from "node:fs";
-import path13 from "node:path";
+import fs13 from "node:fs";
+import path12 from "node:path";
 function parseConfigSetArgs(argv) {
   const args = { key: "", value: "", reset: false };
   for (let i = 0; i < argv.length; i++) {
@@ -1769,10 +1771,10 @@ function handleConfigSet(pluginRoot, pluginData, key, rawValue, reset = false) {
   if (reset) {
     const raw2 = loadRawConfig(pluginRoot, pluginData);
     delete raw2[key];
-    const configPath2 = path13.join(pluginData, "config.json");
+    const configPath2 = path12.join(pluginData, "config.json");
     try {
-      fs12.mkdirSync(pluginData, { recursive: true });
-      fs12.writeFileSync(configPath2, JSON.stringify(raw2, null, 2) + "\n");
+      fs13.mkdirSync(pluginData, { recursive: true });
+      fs13.writeFileSync(configPath2, JSON.stringify(raw2, null, 2) + "\n");
     } catch (err) {
       return { ok: false, key, error: `failed to write config.json: ${err}`, errorCode: 2 };
     }
@@ -1789,10 +1791,10 @@ function handleConfigSet(pluginRoot, pluginData, key, rawValue, reset = false) {
   }
   const raw = loadRawConfig(pluginRoot, pluginData);
   raw[key] = validation.value;
-  const configPath = path13.join(pluginData, "config.json");
+  const configPath = path12.join(pluginData, "config.json");
   try {
-    fs12.mkdirSync(pluginData, { recursive: true });
-    fs12.writeFileSync(configPath, JSON.stringify(raw, null, 2) + "\n");
+    fs13.mkdirSync(pluginData, { recursive: true });
+    fs13.writeFileSync(configPath, JSON.stringify(raw, null, 2) + "\n");
   } catch (err) {
     return { ok: false, key, error: `failed to write config.json: ${err}`, errorCode: 2 };
   }
@@ -1809,9 +1811,9 @@ function resolvePaths() {
   const pluginData = adapter.resolvePluginData(pluginRoot);
   const config = resolveConfig(pluginRoot, pluginData);
   return {
-    statePath: path14.join(pluginData, "state.json"),
-    sessionsDir: path14.join(pluginData, "sessions"),
-    statsPath: path14.join(pluginData, "stats.json"),
+    statePath: path13.join(pluginData, "state.json"),
+    sessionsDir: path13.join(pluginData, "sessions"),
+    statsPath: path13.join(pluginData, "stats.json"),
     pluginRoot,
     pluginData,
     config
@@ -1975,7 +1977,7 @@ if (process.argv[1]?.endsWith("runtime.ts") || process.argv[1]?.endsWith("runtim
   let stdinData = "";
   if (["post-tool-use", "stop-gate"].includes(command)) {
     try {
-      stdinData = fs13.readFileSync("/dev/stdin", "utf-8").trim();
+      stdinData = fs14.readFileSync("/dev/stdin", "utf-8").trim();
     } catch {
     }
   }

@@ -16,11 +16,6 @@ export class CodexAdapter implements PlatformAdapter {
   readonly envSessionId = "CODEX_SESSION_ID";
   readonly companionCommand = "codex";
   readonly hookFile = "hooks/hooks.codex.json";
-  readonly hookEventNames = {
-    "session-start": "SessionStart",
-    "post-tool-use": "PostToolUse",
-    "stop": "Stop",
-  };
   readonly transcriptFormat = "codex-jsonl";
 
   companionFlags(opts: SpawnOptions): string[] {

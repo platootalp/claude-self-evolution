@@ -88,6 +88,6 @@ Uses Claude Code plugin manifest v2 format:
 
 ## Version Management
 
-**Current version**: `0.6.0` (in `.claude-plugin/plugin.json`)
+**Current version**: `0.12.0` (in `.claude-plugin/plugin.json`)
 
 When fixing bugs or adding features, remember to bump the version in `plugin.json`.

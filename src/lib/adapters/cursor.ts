@@ -17,11 +17,6 @@ export class CursorAdapter implements PlatformAdapter {
   readonly envSessionId = "CURSOR_SESSION_ID";
   readonly companionCommand = "agent";
   readonly hookFile = "hooks/hooks.cursor.json";
-  readonly hookEventNames = {
-    "session-start": "sessionStart",
-    "post-tool-use": "postToolUse",
-    "stop": "stop",
-  };
   readonly transcriptFormat = "cursor-jsonl";
 
   companionFlags(opts: SpawnOptions): string[] {

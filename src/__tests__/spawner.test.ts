@@ -42,12 +42,16 @@ describe("spawner", () => {
     delete process.env.CLAUDE_PLUGIN_ROOT;
     delete process.env.CODEX_SESSION_ID;
     delete process.env.CURSOR_PROJECT_DIR;
+    const spy = vi.spyOn(process, "cwd").mockReturnValue("/tmp/no-plugin-manifests");
     expect(detectPlatform()).toBe("claude-code");
+    spy.mockRestore();
   });
 
   it("getSpawner returns ClaudeCodeSpawner by default", () => {
+    const spy = vi.spyOn(process, "cwd").mockReturnValue("/tmp/no-plugin-manifests");
     const spawner = getSpawner();
     expect(spawner).toBeInstanceOf(ClaudeCodeSpawner);
+    spy.mockRestore();
   });
 
   it("getSpawner returns CodexSpawner for codex platform", () => {

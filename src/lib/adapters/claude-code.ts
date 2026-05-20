@@ -13,11 +13,6 @@ export class ClaudeCodeAdapter implements PlatformAdapter {
   readonly envSessionId = "SELF_EVOLUTION_SESSION_ID";
   readonly companionCommand = "claude";
   readonly hookFile = "hooks/hooks.json";
-  readonly hookEventNames = {
-    "session-start": "SessionStart",
-    "post-tool-use": "PostToolUse",
-    "stop": "Stop",
-  };
   readonly transcriptFormat = "json-array";
 
   companionFlags(opts: SpawnOptions): string[] {
