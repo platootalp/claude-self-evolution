@@ -1,9 +1,9 @@
-import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import os from "node:os";
 import crypto from "node:crypto";
 import type { SpawnOptions, Job } from "../types.js";
+import { getAdapter, detectPlatform as adapterDetectPlatform } from "./adapter.js";
+import type { PlatformAdapter } from "./adapter.js";
 
 export interface JobLifecycleCallbacks {
   onJobCreated?(job: Job): void;
@@ -62,27 +62,31 @@ export function selectPromptVariant(
   return "skill";
 }
 
-function readExistingSkills(): ExistingSkill[] {
-  const skillsDir = path.join(os.homedir(), ".claude", "skills");
+function readExistingSkills(skillDirs: string[]): ExistingSkill[] {
+  const seen = new Set<string>();
   const skills: ExistingSkill[] = [];
-  try {
-    const entries = fs.readdirSync(skillsDir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const skillPath = path.join(skillsDir, entry.name, "SKILL.md");
-      try {
-        const content = fs.readFileSync(skillPath, "utf-8");
-        const nameMatch = content.match(/^---\n[\s\S]*?\bname:\s*(.+)\n/);
-        const descMatch = content.match(/^---\n[\s\S]*?\bdescription:\s*(.+)\n/);
-        skills.push({
-          name: nameMatch ? nameMatch[1].trim().replace(/^['"]|['"]$/g, "") : entry.name,
-          description: descMatch ? descMatch[1].trim().replace(/^['"]|['"]$/g, "") : "",
-        });
-      } catch {
-        skills.push({ name: entry.name, description: "" });
+  for (const skillsDir of skillDirs) {
+    try {
+      const entries = fs.readdirSync(skillsDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        if (seen.has(entry.name)) continue;
+        seen.add(entry.name);
+        const skillPath = path.join(skillsDir, entry.name, "SKILL.md");
+        try {
+          const content = fs.readFileSync(skillPath, "utf-8");
+          const nameMatch = content.match(/^---\n[\s\S]*?\bname:\s*(.+)\n/);
+          const descMatch = content.match(/^---\n[\s\S]*?\bdescription:\s*(.+)\n/);
+          skills.push({
+            name: nameMatch ? nameMatch[1].trim().replace(/^['"]|['"]$/g, "") : entry.name,
+            description: descMatch ? descMatch[1].trim().replace(/^['"]|['"]$/g, "") : "",
+          });
+        } catch {
+          skills.push({ name: entry.name, description: "" });
+        }
       }
-    }
-  } catch {}
+    } catch {}
+  }
   return skills;
 }
 
@@ -145,49 +149,25 @@ NEVER output ok:false. Always complete and exit.`;
     .replace(/\${SELF_EVOLUTION_TRANSCRIPT_PATH}/g, opts.transcriptPath);
 }
 
-export class ClaudeCodeSpawner implements AgentSpawner {
-  readonly platform = "claude-code";
+abstract class AdapterSpawner implements AgentSpawner {
+  abstract readonly platform: string;
+  protected abstract getAdapterInstance(): PlatformAdapter;
 
   async spawnReviewProcess(opts: SpawnOptions, callbacks?: JobLifecycleCallbacks): Promise<Job> {
-    const existingSkills = readExistingSkills();
+    const adapter = this.getAdapterInstance();
+    const existingSkills = readExistingSkills(adapter.skillDirs);
     const transcriptContent = readTranscriptContent(opts.transcriptPath);
     const variant = selectPromptVariant(existingSkills, transcriptContent);
-
     const prompt = buildReviewPrompt(opts, opts.pluginRoot, variant);
 
-    const args = [
-      "-p", prompt,
-      "--allowedTools", "Read,Write,Bash,Glob,Grep,Skill",
-      "--max-turns", String(opts.reviewMaxTurns ?? 8),
-      "--output-format", "json",
-    ];
-
-    if (opts.reviewModel) {
-      args.push("--model", opts.reviewModel);
-    }
-
-    // Open log file for companion stdout/stderr
     const sessionDir = path.join(opts.pluginData, "sessions", opts.sessionId);
     let logFd: number | undefined;
     try {
       fs.mkdirSync(sessionDir, { recursive: true });
       logFd = fs.openSync(path.join(sessionDir, "companion.log"), "a");
-    } catch {
-      // Best-effort: fall back to "ignore" if log file can't be opened
-    }
+    } catch {}
 
-    const child = spawn("claude", args, {
-      detached: true,
-      stdio: ["ignore", logFd ?? "ignore", logFd ?? "ignore"],
-      env: {
-        ...process.env,
-        CLAUDE_PLUGIN_ROOT: opts.pluginRoot,
-        CLAUDE_PLUGIN_DATA: opts.pluginData,
-        SELF_EVOLUTION_SESSION_ID: opts.sessionId,
-        SELF_EVOLUTION_TRANSCRIPT_PATH: opts.transcriptPath,
-        SELF_EVOLUTION_REVIEW_MODE: "1",
-      },
-    });
+    const child = adapter.spawnCompanion(prompt, opts, logFd);
 
     const jobId = generateId();
 
@@ -196,14 +176,11 @@ export class ClaudeCodeSpawner implements AgentSpawner {
     });
 
     child.on("exit", (code) => {
-      // Close log fd if we opened one
       if (logFd !== undefined) {
         try { fs.closeSync(logFd); } catch {}
       }
       callbacks?.onJobExit?.(jobId, code);
     });
-
-    child.unref();
 
     const job: Job = {
       id: jobId,
@@ -218,30 +195,34 @@ export class ClaudeCodeSpawner implements AgentSpawner {
   }
 }
 
-export class CodexSpawner implements AgentSpawner {
-  readonly platform = "codex";
-  async spawnReviewProcess(_opts: SpawnOptions, _callbacks?: JobLifecycleCallbacks): Promise<Job> {
-    throw new Error("Codex spawner not implemented. Set platform=claude-code or implement CodexSpawner.");
+export class ClaudeCodeSpawner extends AdapterSpawner {
+  readonly platform = "claude-code";
+  protected getAdapterInstance(): PlatformAdapter {
+    return getAdapter("claude-code");
   }
 }
 
-export class CursorSpawner implements AgentSpawner {
+export class CodexSpawner extends AdapterSpawner {
+  readonly platform = "codex";
+  protected getAdapterInstance(): PlatformAdapter {
+    return getAdapter("codex");
+  }
+}
+
+export class CursorSpawner extends AdapterSpawner {
   readonly platform = "cursor";
-  async spawnReviewProcess(_opts: SpawnOptions, _callbacks?: JobLifecycleCallbacks): Promise<Job> {
-    throw new Error("Cursor spawner not implemented. Set platform=claude-code or implement CursorSpawner.");
+  protected getAdapterInstance(): PlatformAdapter {
+    return getAdapter("cursor");
   }
 }
 
 export function detectPlatform(): string {
-  if (process.env.CLAUDE_PLUGIN_ROOT) return "claude-code";
-  if (process.env.CODEX_SESSION_ID) return "codex";
-  return "claude-code";
+  return adapterDetectPlatform();
 }
 
 export function getSpawner(platform?: string): AgentSpawner {
   const p = platform || process.env.SELF_EVOLUTION_PLATFORM || detectPlatform();
   switch (p) {
-    case "claude-code": return new ClaudeCodeSpawner();
     case "codex": return new CodexSpawner();
     case "cursor": return new CursorSpawner();
     default: return new ClaudeCodeSpawner();

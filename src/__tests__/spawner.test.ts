@@ -20,18 +20,28 @@ describe("spawner", () => {
   it("detectPlatform returns claude-code when CLAUDE_PLUGIN_ROOT set", () => {
     process.env.CLAUDE_PLUGIN_ROOT = "/some/path";
     delete process.env.CODEX_SESSION_ID;
+    delete process.env.CURSOR_PROJECT_DIR;
     expect(detectPlatform()).toBe("claude-code");
   });
 
   it("detectPlatform returns codex when CODEX_SESSION_ID set", () => {
     delete process.env.CLAUDE_PLUGIN_ROOT;
+    delete process.env.CURSOR_PROJECT_DIR;
     process.env.CODEX_SESSION_ID = "test-session";
     expect(detectPlatform()).toBe("codex");
+  });
+
+  it("detectPlatform returns cursor when CURSOR_PROJECT_DIR set", () => {
+    delete process.env.CLAUDE_PLUGIN_ROOT;
+    delete process.env.CODEX_SESSION_ID;
+    process.env.CURSOR_PROJECT_DIR = "/some/path";
+    expect(detectPlatform()).toBe("cursor");
   });
 
   it("detectPlatform defaults to claude-code", () => {
     delete process.env.CLAUDE_PLUGIN_ROOT;
     delete process.env.CODEX_SESSION_ID;
+    delete process.env.CURSOR_PROJECT_DIR;
     expect(detectPlatform()).toBe("claude-code");
   });
 
@@ -50,28 +60,112 @@ describe("spawner", () => {
     expect(spawner).toBeInstanceOf(CursorSpawner);
   });
 
-  it("CodexSpawner throws not implemented", async () => {
+  it("CodexSpawner spawns detached process with codex exec", async () => {
+    const { spawn } = await import("node:child_process");
+    (spawn as ReturnType<typeof import("node:child_process").spawn>).mockImplementation(() => {
+      const fakeChild = {
+        pid: 88888,
+        unref: vi.fn(),
+        on: vi.fn(),
+      } as unknown as ReturnType<typeof spawn>;
+      return fakeChild as ReturnType<typeof spawn>;
+    });
+
     const spawner = new CodexSpawner();
-    await expect(
-      spawner.spawnReviewProcess({
-        sessionId: "s1",
-        transcriptPath: "/tmp/transcript.jsonl",
-        pluginRoot: "/tmp/plugin",
-        pluginData: "/tmp/data",
-      })
-    ).rejects.toThrow("Codex spawner not implemented");
+    const job = await spawner.spawnReviewProcess({
+      sessionId: "s1",
+      transcriptPath: "/tmp/transcript.jsonl",
+      pluginRoot: "/tmp/plugin",
+      pluginData: "/tmp/data",
+    });
+
+    expect(job.status).toBe("running");
+    expect(job.pid).toBe(88888);
+    expect(spawn).toHaveBeenCalled();
+    const spawnArgs = (spawn as any).mock.calls[0];
+    expect(spawnArgs[0]).toBe("codex");
+    expect(spawnArgs[1]).toContain("exec");
+    expect(spawnArgs[1]).toContain("--json");
   });
 
-  it("CursorSpawner throws not implemented", async () => {
+  it("CursorSpawner spawns detached process with agent -p", async () => {
+    const { spawn } = await import("node:child_process");
+    (spawn as ReturnType<typeof import("node:child_process").spawn>).mockImplementation(() => {
+      const fakeChild = {
+        pid: 77777,
+        unref: vi.fn(),
+        on: vi.fn(),
+      } as unknown as ReturnType<typeof spawn>;
+      return fakeChild as ReturnType<typeof spawn>;
+    });
+
     const spawner = new CursorSpawner();
-    await expect(
-      spawner.spawnReviewProcess({
-        sessionId: "s1",
-        transcriptPath: "/tmp/transcript.jsonl",
-        pluginRoot: "/tmp/plugin",
-        pluginData: "/tmp/data",
-      })
-    ).rejects.toThrow("Cursor spawner not implemented");
+    const job = await spawner.spawnReviewProcess({
+      sessionId: "s1",
+      transcriptPath: "/tmp/transcript.jsonl",
+      pluginRoot: "/tmp/plugin",
+      pluginData: "/tmp/data",
+    });
+
+    expect(job.status).toBe("running");
+    expect(job.pid).toBe(77777);
+    expect(spawn).toHaveBeenCalled();
+    const spawnArgs = (spawn as any).mock.calls[0];
+    expect(spawnArgs[0]).toBe("agent");
+    expect(spawnArgs[1]).toContain("-p");
+    expect(spawnArgs[1]).toContain("--sandbox");
+    expect(spawnArgs[1]).toContain("enabled");
+  });
+
+  it("CodexSpawner sets PLUGIN_ROOT and CLAUDE_PLUGIN_ROOT env vars", async () => {
+    const { spawn } = await import("node:child_process");
+    (spawn as ReturnType<typeof import("node:child_process").spawn>).mockImplementation(() => {
+      const fakeChild = {
+        pid: 88887,
+        unref: vi.fn(),
+        on: vi.fn(),
+      } as unknown as ReturnType<typeof spawn>;
+      return fakeChild as ReturnType<typeof spawn>;
+    });
+
+    const spawner = new CodexSpawner();
+    await spawner.spawnReviewProcess({
+      sessionId: "s1",
+      transcriptPath: "/tmp/transcript.jsonl",
+      pluginRoot: "/tmp/plugin",
+      pluginData: "/tmp/data",
+    });
+
+    const spawnArgs = (spawn as any).mock.calls[0];
+    const env = spawnArgs[2].env;
+    expect(env.PLUGIN_ROOT).toBe("/tmp/plugin");
+    expect(env.CLAUDE_PLUGIN_ROOT).toBe("/tmp/plugin");
+  });
+
+  it("CursorSpawner sets CURSOR_PROJECT_DIR, CLAUDE_PROJECT_DIR, and CLAUDE_PLUGIN_ROOT env vars", async () => {
+    const { spawn } = await import("node:child_process");
+    (spawn as ReturnType<typeof import("node:child_process").spawn>).mockImplementation(() => {
+      const fakeChild = {
+        pid: 77776,
+        unref: vi.fn(),
+        on: vi.fn(),
+      } as unknown as ReturnType<typeof spawn>;
+      return fakeChild as ReturnType<typeof spawn>;
+    });
+
+    const spawner = new CursorSpawner();
+    await spawner.spawnReviewProcess({
+      sessionId: "s1",
+      transcriptPath: "/tmp/transcript.jsonl",
+      pluginRoot: "/tmp/plugin",
+      pluginData: "/tmp/data",
+    });
+
+    const spawnArgs = (spawn as any).mock.calls[0];
+    const env = spawnArgs[2].env;
+    expect(env.CURSOR_PROJECT_DIR).toBe("/tmp/plugin");
+    expect(env.CLAUDE_PROJECT_DIR).toBe("/tmp/plugin");
+    expect(env.CLAUDE_PLUGIN_ROOT).toBe("/tmp/plugin");
   });
 
   it("ClaudeCodeSpawner.spawnReviewProcess spawns detached process", async () => {

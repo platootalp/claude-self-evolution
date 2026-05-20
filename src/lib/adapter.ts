@@ -30,6 +30,7 @@ import { CodexAdapter } from "./adapters/codex.js";
 import { CursorAdapter } from "./adapters/cursor.js";
 
 export { ClaudeCodeAdapter, CodexAdapter, CursorAdapter };
+export type { PlatformAdapter } from "../types.js";
 
 export function getAdapter(platform?: PlatformName | string): PlatformAdapter {
   const p = (platform || process.env.SELF_EVOLUTION_PLATFORM || detectPlatform()) as PlatformName;
