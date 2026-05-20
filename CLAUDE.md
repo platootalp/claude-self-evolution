@@ -44,6 +44,20 @@ skills/               # Meta-skill (evolve-skill-writer) for SKILL.md generation
 | `log-decision` | Called by reviewer after decision | Log CREATED/UPDATED/SKIPPED to JSONL + stats |
 | `status` | `/evolve-status` command | Show sessions and job history |
 
+### Multi-Platform Support
+
+Self-evolution runs on three platforms via a PlatformAdapter interface:
+
+| Platform | Manifest | Hooks | Companion CLI | Skill Dirs |
+|----------|----------|-------|---------------|------------|
+| Claude Code | `.claude-plugin/` | `hooks/hooks.json` | `claude -p` | `~/.claude/skills/` |
+| Codex | `.codex-plugin/` | `hooks/hooks.codex.json` | `codex exec` | `~/.agents/skills/`, `~/.claude/skills/` |
+| Cursor | `.cursor-plugin/` | `hooks/hooks.cursor.json` | `agent -p` | `~/.cursor/skills/`, `~/.claude/skills/`, `~/.agents/skills/` |
+
+Platform detection: `CURSOR_PROJECT_DIR` → cursor, `CODEX_SESSION_ID` → codex, `CLAUDE_PLUGIN_ROOT` → claude-code, default → claude-code.
+
+All platforms share the same `dist/runtime.mjs` bundle. Use `scripts/package.sh` to create platform-specific packages.
+
 ### Key Design Decisions
 
 - **TypeScript + esbuild**: Single-file bundle (`dist/runtime.mjs`) — no shell script dependencies
