@@ -4,7 +4,7 @@ import type { TranscriptSummary, TranscriptToolCall } from "../types.js";
 // totalTurns counts individual messages (both user and assistant), not conversation rounds.
 // A single round (user + assistant) = totalTurns of 2.
 
-export function parseTranscript(transcriptPath: string): TranscriptSummary {
+export function parseTranscript(transcriptPath: string, format?: string): TranscriptSummary {
   const summary: TranscriptSummary = {
     toolCalls: [],
     userMessages: [],
@@ -26,6 +26,8 @@ export function parseTranscript(transcriptPath: string): TranscriptSummary {
   }
 
   if (!raw) return summary;
+
+  const effectiveFormat = format || "json-array";
 
   let entries: unknown[];
 
@@ -49,6 +51,22 @@ export function parseTranscript(transcriptPath: string): TranscriptSummary {
 
   for (const entry of entries) {
     const e = entry as Record<string, unknown>;
+
+    // Codex-specific: item events with command_execution
+    if ((effectiveFormat === "codex-jsonl" || !format) && e.item) {
+      const item = e.item as Record<string, unknown>;
+      if (item.type === "command_execution") {
+        const toolCall: TranscriptToolCall = {
+          tool: "Bash",
+          input: { command: String(item.command ?? "") },
+          output: String(item.output ?? ""),
+        };
+        summary.toolCalls.push(toolCall);
+        summary.totalTurns++;
+      }
+      continue;
+    }
+
     const type = e.type as string | undefined;
     const message = e.message as Record<string, unknown> | undefined;
 

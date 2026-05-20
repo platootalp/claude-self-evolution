@@ -246,3 +246,40 @@ describe("parseTranscript", () => {
     expect(summary.toolCalls[0].output).toBe("file contents here");
   });
 });
+
+describe("parseTranscript codex-jsonl format", () => {
+  it("parses codex item events with command_execution type", () => {
+    const codexTranscript = [
+      JSON.stringify({ type: "user", message: { content: "fix the bug" } }),
+      JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: "Bash", input: { command: "npm test" } }] } }),
+      JSON.stringify({ item: { type: "command_execution", command: "npm test", exit_code: 0, output: "all tests pass" } }),
+      JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "All tests pass" }] } }),
+    ].join("\n");
+    const tmpFile = path.join(os.tmpdir(), `codex-test-${Date.now()}.jsonl`);
+    fs.writeFileSync(tmpFile, codexTranscript);
+    const result = parseTranscript(tmpFile, "codex-jsonl");
+    expect(result.userMessages).toHaveLength(1);
+    expect(result.userMessages[0]).toBe("fix the bug");
+    // Should have Bash tool_use from assistant + command_execution item
+    expect(result.toolCalls.length).toBeGreaterThanOrEqual(2);
+    expect(result.toolCalls.some(tc => tc.tool === "Bash" && tc.input.command === "npm test")).toBe(true);
+    expect(result.toolCalls.some(tc => tc.tool === "Bash" && tc.output === "all tests pass")).toBe(true);
+    expect(result.assistantMessages).toHaveLength(1);
+    fs.unlinkSync(tmpFile);
+  });
+});
+
+describe("parseTranscript cursor-jsonl format", () => {
+  it("parses cursor format using claude-code parser as fallback", () => {
+    const cursorTranscript = [
+      JSON.stringify({ type: "user", message: { content: "refactor this" } }),
+      JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "I'll refactor it" }] } }),
+    ].join("\n");
+    const tmpFile = path.join(os.tmpdir(), `cursor-test-${Date.now()}.jsonl`);
+    fs.writeFileSync(tmpFile, cursorTranscript);
+    const result = parseTranscript(tmpFile, "cursor-jsonl");
+    expect(result.userMessages).toHaveLength(1);
+    expect(result.assistantMessages).toHaveLength(1);
+    fs.unlinkSync(tmpFile);
+  });
+});
