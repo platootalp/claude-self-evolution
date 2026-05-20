@@ -77,6 +77,41 @@ export interface StopInput extends HookInput {
   stop_hook_active: boolean;
 }
 
+// ─── Platform Adapter ───────────────────────────────────────────────
+
+import type { ChildProcess } from "node:child_process";
+
+export type PlatformName = "claude-code" | "codex" | "cursor";
+
+export interface NormalizedHookInput {
+  sessionId: string;
+  transcriptPath: string | null;
+  toolName?: string;
+  toolInput?: Record<string, unknown>;
+  cwd?: string;
+  hookEventName?: string;
+  model?: string;
+  permissionMode?: string;
+}
+
+export interface PlatformAdapter {
+  readonly platform: PlatformName;
+  readonly pluginManifestDir: string;
+  readonly skillDirs: string[];
+  readonly envPluginRoot: string;
+  readonly envPluginData: string;
+  readonly envSessionId: string;
+  readonly companionCommand: string;
+  readonly companionFlags: (opts: SpawnOptions) => string[];
+  readonly hookFile: string;
+  readonly hookEventNames: Record<string, string>;
+  readonly transcriptFormat: string;
+  spawnCompanion(prompt: string, opts: SpawnOptions, logFd?: number): ChildProcess;
+  getCompanionEnv(opts: SpawnOptions): Record<string, string>;
+  resolvePluginRoot(): string;
+  resolvePluginData(pluginRoot: string): string;
+}
+
 // ─── Spawner ────────────────────────────────────────────────────────
 
 export interface SpawnOptions {
